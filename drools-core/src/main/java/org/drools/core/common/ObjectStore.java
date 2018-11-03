@@ -57,6 +57,8 @@ public interface ObjectStore {
      */
     Iterator<InternalFactHandle> iterateFactHandles();
 
+    Iterator<InternalFactHandle> iterateFactHandles(Class<?> clazz);
+
     /**
      * This class is not thread safe, changes to the working memory during iteration may give unexpected results
      */

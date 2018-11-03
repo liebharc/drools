@@ -260,7 +260,7 @@ public class TruthMaintenanceSystem {
      * @param conf the type's configuration.
      */
     private void enableTMS(Object object, ObjectTypeConf conf) {
-        Iterator<InternalFactHandle> it = ((ClassAwareObjectStore) ep.getObjectStore()).iterateFactHandles(getActualClass(object));
+        Iterator<InternalFactHandle> it = ep.getObjectStore().iterateFactHandles(getActualClass(object));
 
         while (it.hasNext()) {
             InternalFactHandle handle = it.next();

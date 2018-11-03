@@ -204,6 +204,7 @@ public class ClassAwareObjectStore implements Externalizable, ObjectStore {
         return new CompositeFactHandleIterator(concreteStores, true);
     }
 
+    @Override
     public Iterator<InternalFactHandle> iterateFactHandles(Class<?> clazz) {
         return getOrCreateClassStore(clazz).factHandlesIterator(true);
     }

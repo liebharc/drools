@@ -107,7 +107,7 @@ public class NamedEntryPoint
         this.lock = lock;
         this.handleFactory = this.wm.getFactHandleFactory();
         this.pctxFactory = kBase.getConfiguration().getComponentFactory().getPropagationContextFactory();
-        this.objectStore = new ClassAwareObjectStore(this.kBase.getConfiguration(), this.lock);
+        this.objectStore = new SmallObjectStore();
         this.traitHelper = new TraitHelper( wm, this );
     }
 

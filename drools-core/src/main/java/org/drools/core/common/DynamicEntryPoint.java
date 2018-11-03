@@ -42,7 +42,7 @@ public class DynamicEntryPoint extends NamedEntryPoint {
     }
 
     private DynamicEntryPoint( EntryPointId entryPoint, StatefulKnowledgeSessionImpl wm, ReentrantLock lock ) {
-        super( entryPoint, wm, new ReteooFactHandleFactory(), lock, new ClassAwareObjectStore( RuleBaseConfiguration.AssertBehaviour.IDENTITY, lock ) );
+        super( entryPoint, wm, new ReteooFactHandleFactory(), lock, new SmallObjectStore( ) );
     }
 
     public void bindRuleBase( InternalKnowledgeBase kBase ) {

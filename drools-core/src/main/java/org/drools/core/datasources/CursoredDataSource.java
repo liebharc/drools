@@ -27,13 +27,7 @@ import java.util.function.Supplier;
 
 import org.drools.core.RuleBaseConfiguration.AssertBehaviour;
 import org.drools.core.WorkingMemoryEntryPoint;
-import org.drools.core.common.ClassAwareObjectStore;
-import org.drools.core.common.EqualityKey;
-import org.drools.core.common.InternalFactHandle;
-import org.drools.core.common.InternalWorkingMemory;
-import org.drools.core.common.InternalWorkingMemoryEntryPoint;
-import org.drools.core.common.ObjectStore;
-import org.drools.core.common.PropagationContextFactory;
+import org.drools.core.common.*;
 import org.drools.core.factmodel.traits.TraitTypeEnum;
 import org.drools.core.phreak.PropagationEntry;
 import org.drools.core.phreak.PropagationEntry.AbstractPropagationEntry;
@@ -63,7 +57,7 @@ public class CursoredDataSource<T> implements InternalDataSource<T> {
 
     private InternalWorkingMemory workingMemory;
 
-    private ObjectStore objectStore = new ClassAwareObjectStore( AssertBehaviour.IDENTITY, null );
+    private ObjectStore objectStore = new SmallObjectStore(  );
 
     private Map<RuleUnit.Identity, PropagationList> propagationsMap = new HashMap<>();
 
