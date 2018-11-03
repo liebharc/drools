@@ -60,7 +60,7 @@ public class ConcurrentNodeMemories implements NodeMemories {
                 SegmentMemory smem = memory.getSegmentMemory();
                 memory.reset();
                 if (smem != null) {
-                    smem.reset(kBase.getSegmentPrototype(smem));
+                    smem.reset(() -> kBase.getSegmentPrototype(smem));
                     if ( smem.isSegmentLinked() ) {
                         smem.notifyRuleLinkSegment((InternalWorkingMemory)session);
                     }

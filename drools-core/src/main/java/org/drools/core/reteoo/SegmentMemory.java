@@ -17,6 +17,7 @@ package org.drools.core.reteoo;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 import org.drools.core.common.InternalWorkingMemory;
 import org.drools.core.common.Memory;
@@ -54,6 +55,7 @@ public class SegmentMemory extends LinkedList<SegmentMemory>
     private          boolean            active;
     private          SegmentMemory      previous;
     private          SegmentMemory      next;
+    private          Long               linkedNodeMaskResetValue = null;
 
     private transient List<PathMemory>  dataDrivenPathMemories;
 
@@ -387,9 +389,20 @@ public class SegmentMemory extends LinkedList<SegmentMemory>
         return nodes;
     }
 
-    public void reset(Prototype prototype) {
+    public void reset(Supplier<Prototype> prototypeSupplier) {
+        if (this.dirtyNodeMask == 0 && linkedNodeMaskResetValue != null && linkedNodeMask == linkedNodeMaskResetValue) {
+            return;
+        }
+
         this.dirtyNodeMask = 0L;
-        this.linkedNodeMask = prototype != null ? prototype.linkedNodeMask : 0L;
+        if (linkedNodeMaskResetValue != null) {
+            this.linkedNodeMask = linkedNodeMaskResetValue;
+        }
+        else {
+            Prototype prototype = prototypeSupplier.get();
+            this.linkedNodeMask = prototype != null ? prototype.linkedNodeMask : 0L;
+        }
+
         stagedLeftTuples.resetAll();
     }
 
