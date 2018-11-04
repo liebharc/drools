@@ -400,7 +400,8 @@ public class SegmentMemory extends LinkedList<SegmentMemory>
         }
         else {
             Prototype prototype = prototypeSupplier.get();
-            this.linkedNodeMask = prototype != null ? prototype.linkedNodeMask : 0L;
+            this.linkedNodeMaskResetValue = prototype != null ? prototype.linkedNodeMask : 0L;
+            this.linkedNodeMask = linkedNodeMaskResetValue;
         }
 
         stagedLeftTuples.resetAll();
