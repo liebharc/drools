@@ -8,7 +8,7 @@ public class SmallObjectStore implements ObjectStore {
 
     private final List<InternalFactHandle> handles = new ArrayList<>();
 
-    private final Map<Integer, InternalFactHandle> index = new HashMap<>();
+    private final Map<Object, InternalFactHandle> index = new IdentityHashMap<>();
 
     @Override
     public int size() {
@@ -28,7 +28,7 @@ public class SmallObjectStore implements ObjectStore {
 
     @Override
     public Object getObjectForHandle(InternalFactHandle handle) {
-        if (!index.containsKey(System.identityHashCode(handle.getObject()))) {
+        if (!index.containsKey(handle.getObject())) {
             return null;
         }
 
@@ -48,7 +48,7 @@ public class SmallObjectStore implements ObjectStore {
 
     @Override
     public InternalFactHandle getHandleForObject(Object object) {
-        return index.get(System.identityHashCode(object));
+        return index.get(object);
     }
 
     @Override
@@ -58,16 +58,16 @@ public class SmallObjectStore implements ObjectStore {
 
     @Override
     public void updateHandle(InternalFactHandle handle, Object object) {
-        index.remove(System.identityHashCode(handle.getObject()));
+        index.remove(handle.getObject());
         handle.setObject(object);
-        index.put(System.identityHashCode(object), handle);
+        index.put(object, handle);
     }
 
     @Override
     public void addHandle(InternalFactHandle handle, Object object) {
         handle.setObject(object);
         handles.add(handle);
-        index.put(System.identityHashCode(object), handle);
+        index.put(object, handle);
     }
 
     @Override
@@ -76,10 +76,10 @@ public class SmallObjectStore implements ObjectStore {
             return;
         }
 
-        if (index.remove(System.identityHashCode(handle.getObject())) == null) {
+        if (index.remove(handle.getObject()) == null) {
             Optional<InternalFactHandle> matchingValue = findByHandle(handle);
             if (matchingValue.isPresent()) {
-                index.remove(System.identityHashCode(matchingValue.get().getObject()));
+                index.remove(matchingValue.get().getObject());
             }
         }
     }
