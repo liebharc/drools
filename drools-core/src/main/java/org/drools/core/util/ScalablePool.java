@@ -65,6 +65,8 @@ public class ScalablePool<T> {
         pool.offer( t );
     }
 
+    public int size() { return pool.size(); }
+
     public void shutdown() {
         for (T t : resources) {
             disposer.accept( t );

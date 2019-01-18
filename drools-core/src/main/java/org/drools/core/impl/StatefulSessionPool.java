@@ -38,6 +38,8 @@ public class StatefulSessionPool {
         return pool.get().fromPool( this );
     }
 
+    public int size() { return pool.size(); }
+
     public void release(StatefulKnowledgeSessionImpl session) {
         pool.release( session );
     }
