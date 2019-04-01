@@ -22,7 +22,7 @@
   <parent>
     <groupId>org.drools</groupId>
     <artifactId>drools</artifactId>
-    <version>7.17.0-SNAPSHOT</version>
+    <version>7.20.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>kie-pmml</artifactId>
@@ -72,7 +72,7 @@
 
     <dependency>
       <groupId>org.jboss.spec.javax.xml.bind</groupId>
-      <artifactId>jboss-jaxb-api_2.2_spec</artifactId>
+      <artifactId>jboss-jaxb-api_2.3_spec</artifactId>
     </dependency>
     <dependency>
       <groupId>com.sun.xml.bind</groupId>
@@ -85,6 +85,12 @@
     <dependency>
       <groupId>javax.activation</groupId>
       <artifactId>activation</artifactId>
+    </dependency>
+
+    <!-- xstream -->
+    <dependency>
+      <groupId>com.thoughtworks.xstream</groupId>
+      <artifactId>xstream</artifactId>
     </dependency>
 
     <!-- Logging -->

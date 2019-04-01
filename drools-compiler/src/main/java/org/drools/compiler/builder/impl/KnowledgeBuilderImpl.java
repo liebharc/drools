@@ -147,9 +147,11 @@ import org.kie.internal.ChangeSet;
 import org.kie.internal.builder.AssemblerContext;
 import org.kie.internal.builder.CompositeKnowledgeBuilder;
 import org.kie.internal.builder.DecisionTableConfiguration;
+import org.kie.internal.builder.DecisionTableInputType;
 import org.kie.internal.builder.KnowledgeBuilder;
 import org.kie.internal.builder.KnowledgeBuilderError;
 import org.kie.internal.builder.KnowledgeBuilderErrors;
+import org.kie.internal.builder.KnowledgeBuilderFactory;
 import org.kie.internal.builder.KnowledgeBuilderResult;
 import org.kie.internal.builder.KnowledgeBuilderResults;
 import org.kie.internal.builder.ResourceChange;
@@ -396,8 +398,20 @@ public class KnowledgeBuilderImpl implements KnowledgeBuilder,
             return compositePackageDescr;
         }
 
+        if (dtableConfiguration == null) {
+            dtableConfiguration = createDefaultDTableConf();
+        }
+
+        dtableConfiguration.setTrimCell( this.configuration.isTrimCellsInDTable() );
+
         String generatedDrl = DecisionTableFactory.loadFromResource(resource, dtableConfiguration);
         return generatedDrlToPackageDescr(resource, generatedDrl);
+    }
+
+    private static DecisionTableConfiguration createDefaultDTableConf() {
+        DecisionTableConfiguration configuration = KnowledgeBuilderFactory.newDecisionTableConfiguration();
+        configuration.setInputType( DecisionTableInputType.XLS );
+        return configuration;
     }
 
     public void addPackageFromGuidedDecisionTable(Resource resource) throws DroolsParserException,
@@ -1118,13 +1132,16 @@ public class KnowledgeBuilderImpl implements KnowledgeBuilder,
         }
     }
 
+    private static class ForkJoinPoolHolder {
+        private static ForkJoinPool COMPILER_POOL = new ForkJoinPool(); // avoid common pool
+    }
+
     private void compileRulesLevel(PackageDescr packageDescr, PackageRegistry pkgRegistry, List<RuleDescr> rules) {
         boolean parallelRulesBuild = this.kBase == null && parallelRulesBuildThreshold != -1 && rules.size() > parallelRulesBuildThreshold;
         if (parallelRulesBuild) {
             Map<String, RuleBuildContext> ruleCxts = new ConcurrentHashMap<>();
-            ForkJoinPool pool = new ForkJoinPool(); // avoid common pool
             try {
-                pool.submit(() -> 
+                ForkJoinPoolHolder.COMPILER_POOL.submit(() ->
                 rules.stream().parallel()
                         .filter(ruleDescr -> filterAccepts(ResourceChange.Type.RULE, ruleDescr.getNamespace(), ruleDescr.getName()))
                         .forEach(ruleDescr -> {
@@ -1139,7 +1156,7 @@ public class KnowledgeBuilderImpl implements KnowledgeBuilder,
                             }
                         })
                 ).get();
-            } catch (InterruptedException | ExecutionException e) { 
+            } catch (InterruptedException | ExecutionException e) {
                 throw new RuntimeException("Rules compilation failed or interrupted", e);
             }
             for (RuleDescr ruleDescr : rules) {

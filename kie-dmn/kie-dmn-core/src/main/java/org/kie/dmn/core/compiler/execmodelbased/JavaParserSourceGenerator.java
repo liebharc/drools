@@ -16,32 +16,31 @@
 
 package org.kie.dmn.core.compiler.execmodelbased;
 
-import java.util.EnumSet;
 import java.util.List;
 
-import org.drools.javaparser.JavaParser;
-import org.drools.javaparser.ast.ArrayCreationLevel;
-import org.drools.javaparser.ast.CompilationUnit;
-import org.drools.javaparser.ast.Modifier;
-import org.drools.javaparser.ast.NodeList;
-import org.drools.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import org.drools.javaparser.ast.body.ConstructorDeclaration;
-import org.drools.javaparser.ast.body.FieldDeclaration;
-import org.drools.javaparser.ast.body.VariableDeclarator;
-import org.drools.javaparser.ast.expr.ArrayCreationExpr;
-import org.drools.javaparser.ast.expr.ArrayInitializerExpr;
-import org.drools.javaparser.ast.expr.Expression;
-import org.drools.javaparser.ast.expr.NameExpr;
-import org.drools.javaparser.ast.expr.ObjectCreationExpr;
-import org.drools.javaparser.ast.type.ArrayType;
-import org.drools.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.ArrayCreationLevel;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.expr.ArrayCreationExpr;
+import com.github.javaparser.ast.expr.ArrayInitializerExpr;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
+import com.github.javaparser.ast.type.ArrayType;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
 
 public class JavaParserSourceGenerator {
 
     private ClassOrInterfaceDeclaration firstClass;
     private CompilationUnit compilationUnit;
 
-    public static EnumSet<Modifier> PUBLIC_STATIC_FINAL = EnumSet.of(Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL);
+    public static NodeList<Modifier> PUBLIC_STATIC_FINAL = NodeList.nodeList(Modifier.publicModifier(), Modifier.staticModifier(), Modifier.finalModifier());
 
     public JavaParserSourceGenerator(String className, String namespace, String packageName) {
         this.compilationUnit = JavaParser.parse("public class " + className + namespace + "{ }");

@@ -1853,6 +1853,25 @@ public class DMNRuntimeTest extends BaseInterpretedVsCompiledTest {
     }
 
     @Test
+    public void testNowBetweenTwoDates() {
+        // DROOLS-3670 DMN `between` FEEL operator alignments
+        final DMNRuntime runtime = DMNRuntimeUtil.createRuntime("is office open.dmn", this.getClass());
+        final DMNModel dmnModel = runtime.getModel("https://github.com/kiegroup/drools/kie-dmn/_19170B18-B561-4EB2-9D38-714E2442710E",
+                                                   "is office open");
+        assertThat(DMNRuntimeUtil.formatMessages(dmnModel.getMessages()), dmnModel.hasErrors(), is(false));
+
+        final DMNContext context = DMNFactory.newContext();
+        context.set("an office", prototype(entry("opened from", LocalDateTime.of(2018, 12, 31, 8, 0)),
+                                           entry("opened till", LocalDateTime.of(2018, 12, 31, 16, 0))));
+
+        final DMNResult dmnResult = runtime.evaluateAll(dmnModel, context);
+        assertThat(DMNRuntimeUtil.formatMessages(dmnResult.getMessages()), dmnResult.hasErrors(), is(false));
+        LOG.debug("{}", dmnResult);
+        assertThat(dmnResult.getDecisionResultByName("is open").getEvaluationStatus(), is(DecisionEvaluationStatus.SUCCEEDED));
+        assertThat(dmnResult.getDecisionResultByName("is open").getResult(), notNullValue());
+    }
+
+    @Test
     public void testVerifyExtendedKieFEELFunction_today() {
         // DROOLS-2322
         final DMNRuntime runtime = DMNRuntimeUtil.createRuntime("just_today.dmn", this.getClass());
@@ -1963,6 +1982,24 @@ public class DMNRuntimeTest extends BaseInterpretedVsCompiledTest {
 
         final DMNContext result = dmnResult.getContext();
         assertThat(result.get("Boarding Status"), is("Denied"));
+    }
+
+    @Test
+    public void testStructureContainment() {
+        final DMNRuntime runtime = DMNRuntimeUtil.createRuntime("structure-containtment.dmn", this.getClass());
+        final DMNModel dmnModel = runtime.getModel("https://github.com/kiegroup/drools/kie-dmn/_7FB5C3E4-4DF8-42A6-A7FA-28315DECCDD0",
+                                                   "structure-containtment");
+        assertThat(dmnModel, notNullValue());
+        assertThat(DMNRuntimeUtil.formatMessages(dmnModel.getMessages()), dmnModel.hasErrors(), is(false));
+
+        final DMNContext context = DMNFactory.newContext();
+        context.set("an employee", prototype(entry("age", BigDecimal.valueOf(50))));
+
+        final DMNResult dmnResult = runtime.evaluateAll(dmnModel, context);
+        assertThat(DMNRuntimeUtil.formatMessages(dmnResult.getMessages()), dmnResult.hasErrors(), is(false));
+
+        final DMNContext result = dmnResult.getContext();
+        assertThat(result.get("is there"), is(true));
     }
 
     @Test

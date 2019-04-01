@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -31,34 +30,37 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.drools.compiler.builder.impl.CompositeKnowledgeBuilderImpl;
 import org.drools.compiler.builder.impl.KnowledgeBuilderConfigurationImpl;
 import org.drools.compiler.compiler.DialectCompiletimeRegistry;
+import org.drools.compiler.compiler.io.memory.MemoryFileSystem;
+import org.drools.compiler.kie.builder.impl.ResultsImpl;
 import org.drools.compiler.lang.descr.EntryPointDeclarationDescr;
 import org.drools.core.definitions.InternalKnowledgePackage;
-import org.drools.javaparser.JavaParser;
-import org.drools.javaparser.ast.CompilationUnit;
-import org.drools.javaparser.ast.Modifier;
-import org.drools.javaparser.ast.NodeList;
-import org.drools.javaparser.ast.body.BodyDeclaration;
-import org.drools.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import org.drools.javaparser.ast.body.FieldDeclaration;
-import org.drools.javaparser.ast.body.InitializerDeclaration;
-import org.drools.javaparser.ast.body.MethodDeclaration;
-import org.drools.javaparser.ast.body.VariableDeclarator;
-import org.drools.javaparser.ast.comments.JavadocComment;
-import org.drools.javaparser.ast.expr.ClassExpr;
-import org.drools.javaparser.ast.expr.Expression;
-import org.drools.javaparser.ast.expr.MethodCallExpr;
-import org.drools.javaparser.ast.expr.NameExpr;
-import org.drools.javaparser.ast.expr.SimpleName;
-import org.drools.javaparser.ast.expr.StringLiteralExpr;
-import org.drools.javaparser.ast.stmt.BlockStmt;
-import org.drools.javaparser.ast.type.ClassOrInterfaceType;
-import org.drools.javaparser.ast.type.Type;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.BodyDeclaration;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.InitializerDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.comments.JavadocComment;
+import com.github.javaparser.ast.expr.ClassExpr;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.SimpleName;
+import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.Type;
 import org.drools.model.Global;
 import org.drools.model.Model;
 import org.drools.model.Rule;
 import org.drools.model.WindowReference;
+import org.drools.modelcompiler.builder.generator.ConsequenceValidation;
 import org.drools.modelcompiler.builder.generator.DRLIdGenerator;
 import org.drools.modelcompiler.builder.generator.DrlxParseUtil;
 import org.drools.modelcompiler.builder.generator.QueryGenerator;
@@ -70,6 +72,9 @@ import org.slf4j.LoggerFactory;
 import static java.util.stream.Collectors.joining;
 
 import static org.drools.core.util.StringUtils.generateUUID;
+import static com.github.javaparser.ast.Modifier.*;
+import static com.github.javaparser.ast.Modifier.publicModifier;
+import static com.github.javaparser.ast.Modifier.staticModifier;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.toClassOrInterfaceType;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.toVar;
 import static org.drools.modelcompiler.builder.generator.DslMethodNames.GLOBAL_OF_CALL;
@@ -120,6 +125,7 @@ public class PackageModel {
     private KnowledgeBuilderConfigurationImpl configuration;
     private Map<String, AccumulateFunction> accumulateFunctions;
     private InternalKnowledgePackage pkg;
+    private List<ConsequenceValidation> consequenceValidations = new ArrayList<>();
 
     public PackageModel(String name, KnowledgeBuilderConfigurationImpl configuration, boolean isPattern, DialectCompiletimeRegistry dialectCompiletimeRegistry, DRLIdGenerator exprIdGenerator) {
         this.name = name;
@@ -310,6 +316,20 @@ public class PackageModel {
         return dialectCompiletimeRegistry;
     }
 
+    public void addConsequenceValidation(ConsequenceValidation consequenceValidation) {
+        consequenceValidations.add(consequenceValidation);
+        consequenceValidation.setClassName(getName() + "." + rulesFileName);
+    }
+
+    public void validateConsequence(ClassLoader parentClassLoader, MemoryFileSystem memoryFileSystem, ResultsImpl messages) {
+        if(!consequenceValidations.isEmpty()) {
+            ClassLoader byteClassLoader = memoryFileSystem.memoryClassLoader(parentClassLoader);
+            for(ConsequenceValidation cv : consequenceValidations) {
+                cv.validate(byteClassLoader, messages);
+            }
+        }
+    }
+
     public static class RuleSourceResult {
 
         private final CompilationUnit mainRuleClass;
@@ -418,7 +438,7 @@ public class PackageModel {
 
 
         for(Map.Entry<String, MethodCallExpr> windowReference : windowReferences.entrySet()) {
-            FieldDeclaration f = rulesClass.addField(WINDOW_REFERENCE_TYPE, windowReference.getKey(), Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL);
+            FieldDeclaration f = rulesClass.addField(WINDOW_REFERENCE_TYPE, windowReference.getKey(), publicModifier().getKeyword(), staticModifier().getKeyword(), finalModifier().getKeyword());
             f.getVariables().get(0).setInitializer(windowReference.getValue());
         }
 
@@ -427,12 +447,12 @@ public class PackageModel {
         }
 
         for(Map.Entry<String, QueryGenerator.QueryDefWithType> queryDef: queryDefWithType.entrySet()) {
-            FieldDeclaration field = rulesClass.addField(queryDef.getValue().getQueryType(), queryDef.getKey(), Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL);
+            FieldDeclaration field = rulesClass.addField(queryDef.getValue().getQueryType(), queryDef.getKey(), publicModifier().getKeyword(), staticModifier().getKeyword(), finalModifier().getKeyword());
             field.getVariables().get(0).setInitializer(queryDef.getValue().getMethodCallExpr());
         }
 
         for(Map.Entry<String, MethodDeclaration> methodName: queryMethods.entrySet()) {
-            FieldDeclaration field = rulesClass.addField(methodName.getValue().getType(), methodName.getKey(), Modifier.FINAL);
+            FieldDeclaration field = rulesClass.addField(methodName.getValue().getType(), methodName.getKey(), finalModifier().getKeyword());
             field.getVariables().get(0).setInitializer(new MethodCallExpr(null, methodName.getKey()));
         }
 
@@ -469,7 +489,12 @@ public class PackageModel {
             addRulesList( rulesListInitializerBody, "rulesList" );
         }
 
-        int maxLength = ruleMethods.values().parallelStream().map( MethodDeclaration::toString ).mapToInt( String::length ).max().orElse( 1 );
+        ruleMethods.values().parallelStream().forEach(DrlxParseUtil::transformDrlNameExprToNameExpr);
+
+        int maxLength = ruleMethods
+                .values()
+                .parallelStream()
+                .map( MethodDeclaration::toString ).mapToInt( String::length ).max().orElse( 1 );
         int rulesPerClass = Math.max( 50000 / maxLength, 1 );
 
         // each method per Drlx parser result
@@ -551,7 +576,7 @@ public class PackageModel {
         MethodCallExpr rulesInit = new MethodCallExpr( null, "Arrays.asList" );
         ClassOrInterfaceType rulesType = new ClassOrInterfaceType(null, new SimpleName("List"), new NodeList<Type>(new ClassOrInterfaceType(null, "Rule")));
         VariableDeclarator rulesVar = new VariableDeclarator( rulesType, "rulesList", rulesInit );
-        rulesClass.addMember( new FieldDeclaration( EnumSet.of( Modifier.PUBLIC, Modifier.STATIC), rulesVar ) );
+        rulesClass.addMember( new FieldDeclaration( NodeList.nodeList( publicModifier(), staticModifier()), rulesVar ) );
         return rulesInit;
     }
 
@@ -592,7 +617,7 @@ public class PackageModel {
         declarationOfCall.addArgument(new StringLiteralExpr(packageName));
         declarationOfCall.addArgument(new StringLiteralExpr(globalName));
 
-        FieldDeclaration field = classDeclaration.addField(varType, toVar(globalName), Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL);
+        FieldDeclaration field = classDeclaration.addField(varType, toVar(globalName), publicModifier().getKeyword(), staticModifier().getKeyword(), finalModifier().getKeyword());
 
         field.getVariables().get(0).setInitializer(declarationOfCall);
     }

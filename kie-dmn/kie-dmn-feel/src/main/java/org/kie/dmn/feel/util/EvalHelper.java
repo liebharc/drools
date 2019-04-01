@@ -22,10 +22,14 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.MathContext;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.Period;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.temporal.ChronoField;
-import java.time.temporal.Temporal;
+import java.time.temporal.TemporalAccessor;
 import java.time.temporal.TemporalQueries;
 import java.util.Collection;
 import java.util.Iterator;
@@ -40,6 +44,7 @@ import java.util.stream.Stream;
 
 import org.kie.dmn.feel.lang.EvaluationContext;
 import org.kie.dmn.feel.lang.FEELProperty;
+import org.kie.dmn.feel.lang.types.BuiltInType;
 import org.kie.dmn.feel.runtime.Range;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -305,9 +310,6 @@ public class EvalHelper {
                 case "months":
                     result = ((Period) current).getMonths() % 12;
                     break;
-                case "days":
-                    result = ((Period) current).getDays() % 30;
-                    break;
                 default:
                     return PropertyValueResult.notDefined();
             }
@@ -328,39 +330,39 @@ public class EvalHelper {
                 default:
                     return PropertyValueResult.notDefined();
             }
-        } else if ( current instanceof Temporal ) {
+        } else if (current instanceof TemporalAccessor) {
             switch ( property ) {
                 case "year":
-                    result = ((Temporal) current).get(ChronoField.YEAR);
+                    result = ((TemporalAccessor) current).get(ChronoField.YEAR);
                     break;
                 case "month":
-                    result = ((Temporal) current).get(ChronoField.MONTH_OF_YEAR);
+                    result = ((TemporalAccessor) current).get(ChronoField.MONTH_OF_YEAR);
                     break;
                 case "day":
-                    result = ((Temporal) current).get(ChronoField.DAY_OF_MONTH);
+                    result = ((TemporalAccessor) current).get(ChronoField.DAY_OF_MONTH);
                     break;
                 case "hour":
-                    result = ((Temporal) current).get(ChronoField.HOUR_OF_DAY);
+                    result = ((TemporalAccessor) current).get(ChronoField.HOUR_OF_DAY);
                     break;
                 case "minute":
-                    result = ((Temporal) current).get(ChronoField.MINUTE_OF_HOUR);
+                    result = ((TemporalAccessor) current).get(ChronoField.MINUTE_OF_HOUR);
                     break;
                 case "second":
-                    result = ((Temporal) current).get(ChronoField.SECOND_OF_MINUTE);
+                    result = ((TemporalAccessor) current).get(ChronoField.SECOND_OF_MINUTE);
                     break;
                 case "time offset":
-                    result = Duration.ofSeconds(((Temporal) current).get(ChronoField.OFFSET_SECONDS));
+                    result = Duration.ofSeconds(((TemporalAccessor) current).get(ChronoField.OFFSET_SECONDS));
                     break;
                 case "timezone":
-                    ZoneId zoneId = ((Temporal) current).query(TemporalQueries.zoneId());
+                    ZoneId zoneId = ((TemporalAccessor) current).query(TemporalQueries.zoneId());
                     if (zoneId != null) {
-                        result = TimeZone.getTimeZone(zoneId).getDisplayName();
+                        result = TimeZone.getTimeZone(zoneId).getID();
                         break;
                     } else {
                         return PropertyValueResult.notDefined();
                     }
                 case "weekday":
-                    result = ((Temporal) current).get(ChronoField.DAY_OF_WEEK);
+                    result = ((TemporalAccessor) current).get(ChronoField.DAY_OF_WEEK);
                     break;
                 default:
                     return PropertyValueResult.notDefined();
@@ -488,13 +490,24 @@ public class EvalHelper {
             Integer l = lp.getYears() * 12 + lp.getMonths();
             Integer r = rp.getYears() * 12 + rp.getMonths();
             return op.test( l, r );
-        } else if ( (left instanceof String && right instanceof String) ||
-                    (left instanceof Number && right instanceof Number) ||
-                    (left instanceof Boolean && right instanceof Boolean) ||
-                    (left instanceof Comparable && left.getClass().isAssignableFrom( right.getClass() )) ) {
+        } else if (left instanceof TemporalAccessor && right instanceof TemporalAccessor) {
+            // Handle specific cases when both date / datetime
+            TemporalAccessor l = (TemporalAccessor) left;
+            TemporalAccessor r = (TemporalAccessor) right;
+            if (BuiltInType.determineTypeFromInstance(left) == BuiltInType.TIME && BuiltInType.determineTypeFromInstance(right) == BuiltInType.TIME) {
+                return op.test(valuet(l), valuet(r));
+            } else if (BuiltInType.determineTypeFromInstance(left) == BuiltInType.DATE_TIME && BuiltInType.determineTypeFromInstance(right) == BuiltInType.DATE_TIME) {
+                return op.test(valuedt(l, r.query(TemporalQueries.zone())), valuedt(r, l.query(TemporalQueries.zone())));
+            } // fallback; continue:
+        }
+        // last fallback:
+        if ((left instanceof String && right instanceof String) ||
+            (left instanceof Number && right instanceof Number) ||
+            (left instanceof Boolean && right instanceof Boolean) ||
+            (left instanceof Comparable && left.getClass().isAssignableFrom(right.getClass()))) {
             Comparable l = (Comparable) left;
             Comparable r = (Comparable) right;
-            return op.test( l, r );
+            return op.test(l, r);
         }
         return null;
     }
@@ -526,8 +539,81 @@ public class EvalHelper {
             return isEqual( (Iterable)left, (Iterable) right );
         } else if( left instanceof Map && right instanceof Map ) {
             return isEqual( (Map)left, (Map) right );
+        } else if (left instanceof TemporalAccessor && right instanceof TemporalAccessor) {
+            // Handle specific cases when both date / datetime
+            if (BuiltInType.determineTypeFromInstance(left) == BuiltInType.TIME && BuiltInType.determineTypeFromInstance(right) == BuiltInType.TIME) {
+                return isEqualTime((TemporalAccessor) left, (TemporalAccessor) right);
+            } else if (BuiltInType.determineTypeFromInstance(left) == BuiltInType.DATE_TIME && BuiltInType.determineTypeFromInstance(right) == BuiltInType.DATE_TIME) {
+                return isEqualDateTime((TemporalAccessor) left, (TemporalAccessor) right);
+            } // fallback; continue:
         }
         return compare( left, right, ctx, (l, r) -> l.compareTo( r ) == 0  );
+    }
+
+    /**
+     * DMNv1.2 10.3.2.3.6 date-time, valuedt(date and time), for use in this {@link EvalHelper#compare(Object, Object, EvaluationContext, BiPredicate)}
+     */
+    private static long valuedt(TemporalAccessor datetime, ZoneId otherTimezoneOffset) {
+        ZoneId alternativeTZ = Optional.ofNullable(otherTimezoneOffset).orElse(ZoneOffset.UTC);
+        if (datetime instanceof LocalDateTime) {
+            return ((LocalDateTime) datetime).atZone(alternativeTZ).toEpochSecond();
+        } else if (datetime instanceof ZonedDateTime) {
+            return ((ZonedDateTime) datetime).toEpochSecond();
+        } else if (datetime instanceof OffsetDateTime) {
+            return ((OffsetDateTime) datetime).toEpochSecond();
+        } else {
+            throw new RuntimeException("valuedt() for " + datetime + " but is not a FEEL date and time " + datetime.getClass());
+        }
+    }
+
+    /**
+     * DMNv1.2 10.3.2.3.4 time, valuet(time), for use in this {@link EvalHelper#compare(Object, Object, EvaluationContext, BiPredicate)}
+     */
+    private static long valuet(TemporalAccessor time) {
+        long result = 0;
+        result += time.get(ChronoField.HOUR_OF_DAY) * (60 * 60);
+        result += time.get(ChronoField.MINUTE_OF_HOUR) * (60);
+        result += time.get(ChronoField.SECOND_OF_MINUTE);
+        result += Optional.ofNullable(time.query(TemporalQueries.offset())).map(ZoneOffset::getTotalSeconds).orElse(0);
+        return result;
+    }
+
+    /**
+     * DMNv1.2 Table 48: Specific semantics of equality
+     */
+    private static Boolean isEqualDateTime(TemporalAccessor left, TemporalAccessor right) {
+        boolean result = true;
+        Optional<Integer> lY = Optional.ofNullable(left.isSupported(ChronoField.YEAR) ? left.get(ChronoField.YEAR) : null);
+        Optional<Integer> rY = Optional.ofNullable(right.isSupported(ChronoField.YEAR) ? right.get(ChronoField.YEAR) : null);
+        result &= lY.equals(rY);
+        Optional<Integer> lM = Optional.ofNullable(left.isSupported(ChronoField.MONTH_OF_YEAR) ? left.get(ChronoField.MONTH_OF_YEAR) : null);
+        Optional<Integer> rM = Optional.ofNullable(right.isSupported(ChronoField.MONTH_OF_YEAR) ? right.get(ChronoField.MONTH_OF_YEAR) : null);
+        result &= lM.equals(rM);
+        Optional<Integer> lD = Optional.ofNullable(left.isSupported(ChronoField.DAY_OF_MONTH) ? left.get(ChronoField.DAY_OF_MONTH) : null);
+        Optional<Integer> rD = Optional.ofNullable(right.isSupported(ChronoField.DAY_OF_MONTH) ? right.get(ChronoField.DAY_OF_MONTH) : null);
+        result &= lD.equals(rD);
+        result &= isEqualTime(left, right);
+        return result;
+    }
+
+    /**
+     * DMNv1.2 Table 48: Specific semantics of equality
+     */
+    private static Boolean isEqualTime(TemporalAccessor left, TemporalAccessor right) {
+        boolean result = true;
+        Optional<Integer> lH = Optional.ofNullable(left.isSupported(ChronoField.HOUR_OF_DAY) ? left.get(ChronoField.HOUR_OF_DAY) : null);
+        Optional<Integer> rH = Optional.ofNullable(right.isSupported(ChronoField.HOUR_OF_DAY) ? right.get(ChronoField.HOUR_OF_DAY) : null);
+        result &= lH.equals(rH);
+        Optional<Integer> lM = Optional.ofNullable(left.isSupported(ChronoField.MINUTE_OF_HOUR) ? left.get(ChronoField.MINUTE_OF_HOUR) : null);
+        Optional<Integer> rM = Optional.ofNullable(right.isSupported(ChronoField.MINUTE_OF_HOUR) ? right.get(ChronoField.MINUTE_OF_HOUR) : null);
+        result &= lM.equals(rM);
+        Optional<Integer> lS = Optional.ofNullable(left.isSupported(ChronoField.SECOND_OF_MINUTE) ? left.get(ChronoField.SECOND_OF_MINUTE) : null);
+        Optional<Integer> rS = Optional.ofNullable(right.isSupported(ChronoField.SECOND_OF_MINUTE) ? right.get(ChronoField.SECOND_OF_MINUTE) : null);
+        result &= lS.equals(rS);
+        Optional<ZoneId> lTZ = Optional.ofNullable(left.query(TemporalQueries.zone()));
+        Optional<ZoneId> rTZ = Optional.ofNullable(right.query(TemporalQueries.zone()));
+        result &= lTZ.equals(rTZ);
+        return result;
     }
 
     private static Boolean isEqual(Range left, Range right) {

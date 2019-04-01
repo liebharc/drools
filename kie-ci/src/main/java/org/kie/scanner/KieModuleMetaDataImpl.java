@@ -3,7 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
@@ -53,7 +53,9 @@ public class KieModuleMetaDataImpl implements KieModuleMetaData {
     private final Map<String, Collection<String>> classes = new HashMap<String, Collection<String>>();
 
     private final Map<String, String> processes = new HashMap<String, String>();
-    
+
+    private final Map<String, String> forms = new HashMap<>();
+
     private final Map<URI, File> jars = new HashMap<URI, File>();
 
     private final Map<String, TypeMetaInfo> typeMetaInfos = new HashMap<String, TypeMetaInfo>();
@@ -207,8 +209,10 @@ public class KieModuleMetaDataImpl implements KieModuleMetaData {
             while ( entries.hasMoreElements() ) {
                 ZipEntry entry = entries.nextElement();
                 String pathName = entry.getName();
-                if(pathName.endsWith("bpmn") || pathName.endsWith("bpmn2")){
-                  processes.put(pathName, new String(readBytesFromZipEntry(jarFile, entry), UTF8_CHARSET));
+                if(isProcessFile(pathName)){
+                    processes.put(pathName, new String(readBytesFromZipEntry(jarFile, entry), UTF8_CHARSET));
+                } else if (isFormFile(pathName)) {
+                    forms.put(pathName, new String(readBytesFromZipEntry(jarFile, entry), UTF8_CHARSET));
                 }
                 if (!indexClass(pathName)) {
                     if (pathName.endsWith(KieModuleModelImpl.KMODULE_INFO_JAR_PATH)) {
@@ -258,4 +262,16 @@ public class KieModuleMetaDataImpl implements KieModuleMetaData {
       return processes;
     }
 
+    @Override
+    public Map<String, String> getForms() {
+        return forms;
+    }
+
+    static boolean isFormFile(final String pathName) {
+        return pathName.endsWith("frm");
+    }
+
+    static boolean isProcessFile(final String pathName) {
+        return pathName.endsWith("bpmn") || pathName.endsWith("bpmn2") || pathName.endsWith("bpmn-cm");
+    }
 }

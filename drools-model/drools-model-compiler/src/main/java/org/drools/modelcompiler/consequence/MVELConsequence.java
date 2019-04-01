@@ -19,6 +19,7 @@ package org.drools.modelcompiler.consequence;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -38,6 +39,7 @@ import org.drools.core.rule.MVELDialectRuntimeData;
 import org.drools.core.spi.Consequence;
 import org.drools.core.spi.KnowledgeHelper;
 import org.drools.core.spi.Tuple;
+import org.drools.core.util.ClassUtils;
 import org.drools.model.Variable;
 import org.drools.model.functions.ScriptBlock;
 import org.drools.modelcompiler.RuleContext;
@@ -99,7 +101,7 @@ public class MVELConsequence implements Consequence {
         MVEL.executeExpression(compiledExpression, knowledgeHelper, cachingFactory);
     }
 
-    private void init() {
+    public void init() {
         Variable[] vars = consequence.getVariables();
         ScriptBlock scriptBlock = null;
         try {
@@ -124,6 +126,8 @@ public class MVELConsequence implements Consequence {
         Declaration[] previousDeclarations = new Declaration[] {};
         Declaration[] localDeclarations = new Declaration[] {};
         String[] otherIdentifiers = new String[] {};
+
+        expression = MVELConsequenceBuilder.rewriteUpdates( context::getDeclarationClass, ClassUtils::getAccessibleProperties, expression );
 
         cu = new MVELCompilationUnit(name,
                 expression,
@@ -167,5 +171,4 @@ public class MVELConsequence implements Consequence {
 
         compiledExpression = (ExecutableStatement) cu.getCompiledExpression(runtimeData);
     }
-
 }

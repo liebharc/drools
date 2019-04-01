@@ -1,5 +1,6 @@
 package org.drools.modelcompiler.builder.generator;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -11,43 +12,55 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
+import org.drools.compiler.builder.impl.KnowledgeBuilderConfigurationImpl;
+import org.drools.compiler.builder.impl.KnowledgeBuilderImpl;
+import org.drools.compiler.compiler.DroolsError;
+import org.drools.compiler.compiler.RuleBuildError;
 import org.drools.compiler.lang.descr.RuleDescr;
+import org.drools.constraint.parser.printer.PrintUtil;
+import org.drools.core.definitions.InternalKnowledgePackage;
+import org.drools.core.definitions.impl.KnowledgePackageImpl;
+import org.drools.core.definitions.rule.impl.RuleImpl;
 import org.drools.core.util.StringUtils;
-import org.drools.javaparser.JavaParser;
-import org.drools.javaparser.ParseProblemException;
-import org.drools.javaparser.ast.Modifier;
-import org.drools.javaparser.ast.body.Parameter;
-import org.drools.javaparser.ast.body.VariableDeclarator;
-import org.drools.javaparser.ast.drlx.expr.CommaSeparatedMethodCallExpr;
-import org.drools.javaparser.ast.drlx.expr.DrlxExpression;
-import org.drools.javaparser.ast.expr.AssignExpr;
-import org.drools.javaparser.ast.expr.CastExpr;
-import org.drools.javaparser.ast.expr.ClassExpr;
-import org.drools.javaparser.ast.expr.EnclosedExpr;
-import org.drools.javaparser.ast.expr.Expression;
-import org.drools.javaparser.ast.expr.LambdaExpr;
-import org.drools.javaparser.ast.expr.MethodCallExpr;
-import org.drools.javaparser.ast.expr.NameExpr;
-import org.drools.javaparser.ast.expr.ObjectCreationExpr;
-import org.drools.javaparser.ast.expr.SimpleName;
-import org.drools.javaparser.ast.expr.StringLiteralExpr;
-import org.drools.javaparser.ast.expr.VariableDeclarationExpr;
-import org.drools.javaparser.ast.stmt.BlockStmt;
-import org.drools.javaparser.ast.stmt.EmptyStmt;
-import org.drools.javaparser.ast.stmt.Statement;
-import org.drools.javaparser.ast.type.UnknownType;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseProblemException;
+import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import org.drools.constraint.parser.ast.expr.CommaSeparatedMethodCallExpr;
+import org.drools.constraint.parser.ast.expr.DrlxExpression;
+import com.github.javaparser.ast.expr.AssignExpr;
+import com.github.javaparser.ast.expr.CastExpr;
+import com.github.javaparser.ast.expr.ClassExpr;
+import com.github.javaparser.ast.expr.EnclosedExpr;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.LambdaExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
+import com.github.javaparser.ast.expr.SimpleName;
+import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.expr.VariableDeclarationExpr;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.type.UnknownType;
 import org.drools.model.BitMask;
+import org.drools.model.Variable;
 import org.drools.model.bitmask.AllSetButLastBitMask;
+import org.drools.model.consequences.ConsequenceImpl;
+import org.drools.model.functions.ScriptBlock;
+import org.drools.model.impl.DeclarationImpl;
 import org.drools.modelcompiler.builder.PackageModel;
 import org.drools.modelcompiler.builder.errors.InvalidExpressionErrorResult;
 import org.drools.modelcompiler.consequence.DroolsImpl;
+import org.drools.modelcompiler.consequence.MVELConsequence;
 
 import static java.util.stream.Collectors.toSet;
 
 import static org.drools.core.util.ClassUtils.getter2property;
 import static org.drools.core.util.ClassUtils.setter2property;
-import static org.drools.javaparser.JavaParser.parseExpression;
+import static com.github.javaparser.JavaParser.parseExpression;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.findAllChildrenRecursive;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.hasScope;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.isNameExprWithName;
@@ -92,6 +105,7 @@ public class Consequence {
 
     public MethodCallExpr createCall(RuleDescr ruleDescr, String consequenceString, BlockStmt ruleVariablesBlock, boolean isBreaking) {
         BlockStmt ruleConsequence = null;
+
         if (context.getRuleDialect() == RuleContext.RuleDialect.JAVA) {
             // mvel consequences will be treated as a ScriptBlock
             ruleConsequence = rewriteConsequence( consequenceString );
@@ -124,7 +138,32 @@ public class Consequence {
         } else if (context.getRuleDialect() == RuleContext.RuleDialect.MVEL) {
             executeCall = executeScriptCall(ruleDescr, onCall);
         }
+
+        if(context.getRuleDialect() == RuleContext.RuleDialect.MVEL) {
+            validateMvelConsequence(ruleDescr, consequenceString);
+        }
+
         return executeCall;
+    }
+
+    private String addImports(String consequenceString) {
+        for (String i : packageModel.getImports()) {
+            if (i.equals(packageModel.getName() + ".*")) {
+                continue; // skip same-package star import.
+            }
+            consequenceString = String.format("import %s; %s", i, consequenceString);
+        }
+        return consequenceString;
+    }
+
+
+    private void validateMvelConsequence(RuleDescr ruleDescr, String consequenceWithoutImports) {
+        final String consequenceString = addImports(consequenceWithoutImports);
+        ConsequenceValidation consequenceValidation = new ConsequenceValidation(context.getPackageModel().getName(), consequenceString, ruleDescr);
+        for (DeclarationSpec d : context.getAllDeclarations()) {
+            consequenceValidation.addVariable(d);
+        }
+        packageModel.addConsequenceValidation(consequenceValidation);
     }
 
     private BlockStmt rewriteConsequence(String consequence) {
@@ -268,7 +307,7 @@ public class Consequence {
                     MethodCallExpr mc = (MethodCallExpr) e;
                     Expression mcWithScope = org.drools.modelcompiler.builder.generator.DrlxParseUtil.prepend(declAsExpr, mc);
                     modifyBlock.replace(mc, mcWithScope);
-                    sb.append(mc.toString());
+                    sb.append(PrintUtil.printConstraint(mc));
                     sb.append(";\n");
                 }
             }
@@ -314,33 +353,44 @@ public class Consequence {
             }
         }
 
+        Set<String> initializedBitmaskFields = new HashSet<>();
         for (MethodCallExpr updateExpr : updateExprs) {
             Expression argExpr = updateExpr.getArgument(0);
             if (argExpr instanceof NameExpr) {
                 String updatedVar = ((NameExpr) argExpr).getNameAsString();
-                String declarationVar = newDeclarations.containsKey( updatedVar ) ? newDeclarations.get( updatedVar ) : updatedVar;
-                Class<?> updatedClass = context.getDeclarationById(declarationVar).map(DeclarationSpec::getDeclarationClass).orElseThrow(RuntimeException::new);
-
                 Set<String> modifiedProps = findModifiedProperties( methodCallExprs, updateExpr, updatedVar );
 
-                MethodCallExpr bitMaskCreation;
-                if (modifiedProps != null) {
-                    bitMaskCreation = new MethodCallExpr( new NameExpr( BitMask.class.getCanonicalName() ), "getPatternMask" );
-                    bitMaskCreation.addArgument( new ClassExpr( toClassOrInterfaceType( updatedClass ) ) );
-                    modifiedProps.forEach( s -> bitMaskCreation.addArgument( new StringLiteralExpr( s ) ) );
-                } else {
-                    bitMaskCreation = new MethodCallExpr( new NameExpr( AllSetButLastBitMask.class.getCanonicalName() ), "get" );
+                if (!initializedBitmaskFields.contains(updatedVar)) {
+                    MethodCallExpr bitMaskCreation = createBitMaskInitialization(newDeclarations, updatedVar, modifiedProps);
+                    ruleBlock.addStatement(createBitMaskField(updatedVar, bitMaskCreation));
                 }
 
-                VariableDeclarationExpr bitMaskVar = new VariableDeclarationExpr(toClassOrInterfaceType(BitMask.class), "mask_" + updatedVar, Modifier.FINAL);
-                AssignExpr bitMaskAssign = new AssignExpr(bitMaskVar, bitMaskCreation, AssignExpr.Operator.ASSIGN);
-                ruleBlock.addStatement(bitMaskAssign);
-
                 updateExpr.addArgument("mask_" + updatedVar);
+                initializedBitmaskFields.add(updatedVar);
             }
         }
 
         return requireDrools.get();
+    }
+
+    private MethodCallExpr createBitMaskInitialization(Map<String, String> newDeclarations, String updatedVar, Set<String> modifiedProps) {
+        MethodCallExpr bitMaskCreation;
+        if (modifiedProps != null) {
+            String declarationVar = newDeclarations.containsKey(updatedVar) ? newDeclarations.get(updatedVar) : updatedVar;
+            Class<?> updatedClass = context.getDeclarationById(declarationVar).map(DeclarationSpec::getDeclarationClass).orElseThrow(RuntimeException::new);
+
+            bitMaskCreation = new MethodCallExpr(new NameExpr(BitMask.class.getCanonicalName()), "getPatternMask");
+            bitMaskCreation.addArgument(new ClassExpr(toClassOrInterfaceType(updatedClass)));
+            modifiedProps.forEach(s -> bitMaskCreation.addArgument(new StringLiteralExpr(s)));
+        } else {
+            bitMaskCreation = new MethodCallExpr(new NameExpr(AllSetButLastBitMask.class.getCanonicalName()), "get");
+        }
+        return bitMaskCreation;
+    }
+
+    private AssignExpr createBitMaskField(String updatedVar, MethodCallExpr bitMaskCreation) {
+        VariableDeclarationExpr bitMaskVar = new VariableDeclarationExpr(toClassOrInterfaceType(BitMask.class), "mask_" + updatedVar, Modifier.finalModifier());
+        return new AssignExpr(bitMaskVar, bitMaskCreation, AssignExpr.Operator.ASSIGN);
     }
 
     private Set<String> findModifiedProperties( List<MethodCallExpr> methodCallExprs, MethodCallExpr updateExpr, String updatedVar ) {

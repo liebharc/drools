@@ -17,9 +17,11 @@ package org.kie.pmml.pmml_4_2.model;
 
 import java.util.Map;
 
+import com.thoughtworks.xstream.annotations.XStreamAlias;
 import org.kie.api.definition.type.PropertyReactive;
 
 @PropertyReactive
+@XStreamAlias("ScoreCard")
 public class ScoreCard {
     private String modelName;
     private double score;
@@ -27,6 +29,10 @@ public class ScoreCard {
     private boolean enableRC;
     private boolean pointsBelow;
     private Map ranking;
+    
+    public ScoreCard() {
+    	// necessary for JAXB
+    }
 
     public ScoreCard(String modelName) {
         if (modelName == null || modelName.trim().isEmpty()) {

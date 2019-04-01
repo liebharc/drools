@@ -35,30 +35,30 @@ import java.util.stream.Stream;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
-import org.drools.javaparser.JavaParser;
-import org.drools.javaparser.ast.Modifier;
-import org.drools.javaparser.ast.NodeList;
-import org.drools.javaparser.ast.body.FieldDeclaration;
-import org.drools.javaparser.ast.body.Parameter;
-import org.drools.javaparser.ast.body.VariableDeclarator;
-import org.drools.javaparser.ast.expr.BinaryExpr;
-import org.drools.javaparser.ast.expr.BooleanLiteralExpr;
-import org.drools.javaparser.ast.expr.CastExpr;
-import org.drools.javaparser.ast.expr.ClassExpr;
-import org.drools.javaparser.ast.expr.ConditionalExpr;
-import org.drools.javaparser.ast.expr.EnclosedExpr;
-import org.drools.javaparser.ast.expr.Expression;
-import org.drools.javaparser.ast.expr.LambdaExpr;
-import org.drools.javaparser.ast.expr.MethodCallExpr;
-import org.drools.javaparser.ast.expr.NameExpr;
-import org.drools.javaparser.ast.expr.NullLiteralExpr;
-import org.drools.javaparser.ast.expr.ObjectCreationExpr;
-import org.drools.javaparser.ast.expr.StringLiteralExpr;
-import org.drools.javaparser.ast.stmt.ExpressionStmt;
-import org.drools.javaparser.ast.stmt.ReturnStmt;
-import org.drools.javaparser.ast.stmt.Statement;
-import org.drools.javaparser.ast.type.ClassOrInterfaceType;
-import org.drools.javaparser.ast.type.UnknownType;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.expr.BinaryExpr;
+import com.github.javaparser.ast.expr.BooleanLiteralExpr;
+import com.github.javaparser.ast.expr.CastExpr;
+import com.github.javaparser.ast.expr.ClassExpr;
+import com.github.javaparser.ast.expr.ConditionalExpr;
+import com.github.javaparser.ast.expr.EnclosedExpr;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.LambdaExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.NullLiteralExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
+import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
+import com.github.javaparser.ast.stmt.ReturnStmt;
+import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.UnknownType;
 import org.kie.dmn.feel.lang.CompositeType;
 import org.kie.dmn.feel.lang.FunctionDefs;
 import org.kie.dmn.feel.lang.Type;
@@ -89,6 +89,9 @@ import org.kie.dmn.feel.runtime.impl.RangeImpl;
 import org.kie.dmn.feel.util.EvalHelper;
 import org.kie.dmn.feel.util.Msg;
 
+import static com.github.javaparser.ast.Modifier.finalModifier;
+import static com.github.javaparser.ast.Modifier.publicModifier;
+import static com.github.javaparser.ast.Modifier.staticModifier;
 import static org.kie.dmn.feel.codegen.feel11.DirectCompilerResult.mergeFDs;
 
 @Deprecated
@@ -104,15 +107,15 @@ public class DirectCompilerVisitor extends FEEL_1_1BaseVisitor<DirectCompilerRes
     private static final Expression BOUNDARY_CLOSED = JavaParser.parseExpression(org.kie.dmn.feel.runtime.Range.RangeBoundary.class.getCanonicalName() + ".CLOSED");
     private static final Expression BOUNDARY_OPEN = JavaParser.parseExpression(org.kie.dmn.feel.runtime.Range.RangeBoundary.class.getCanonicalName() + ".OPEN");
 
-    private static final org.drools.javaparser.ast.type.Type TYPE_COMPARABLE =
+    private static final com.github.javaparser.ast.type.Type TYPE_COMPARABLE =
             JavaParser.parseType(Comparable.class.getCanonicalName());
-    private static final org.drools.javaparser.ast.type.Type TYPE_LIST =
+    private static final com.github.javaparser.ast.type.Type TYPE_LIST =
             JavaParser.parseType(List.class.getCanonicalName());
     public static final ClassOrInterfaceType TYPE_CUSTOM_FEEL_FUNCTION =
             JavaParser.parseClassOrInterfaceType(CompiledCustomFEELFunction.class.getSimpleName());
-    private static final org.drools.javaparser.ast.type.Type TYPE_BIG_DECIMAL =
+    private static final com.github.javaparser.ast.type.Type TYPE_BIG_DECIMAL =
             JavaParser.parseType(java.math.BigDecimal.class.getCanonicalName());
-    private static final org.drools.javaparser.ast.type.Type TYPE_BOOLEAN =
+    private static final com.github.javaparser.ast.type.Type TYPE_BOOLEAN =
             JavaParser.parseType(Boolean.class.getCanonicalName());
 
     private ScopeHelper scopeHelper; // as this is now compiled it might not be needed for this compilation strategy, just need the layer 0 of input Types, but presently keeping the same strategy as interpreted-AST-visitor
@@ -190,9 +193,9 @@ public class DirectCompilerVisitor extends FEEL_1_1BaseVisitor<DirectCompilerRes
                 JavaParser.parseClassOrInterfaceType(BigDecimal.class.getCanonicalName()), constantName);
         vd.setInitializer(result);
         FieldDeclaration fd = new FieldDeclaration();
-        fd.setModifier(Modifier.PUBLIC, true);
-        fd.setModifier(Modifier.STATIC, true);
-        fd.setModifier(Modifier.FINAL, true);
+        fd.setModifier(publicModifier().getKeyword(), true);
+        fd.setModifier(staticModifier().getKeyword(), true);
+        fd.setModifier(Modifier.finalModifier().getKeyword(), true);
         fd.addVariable(vd);
         return DirectCompilerResult.of(new NameExpr(constantName), BuiltInType.NUMBER, fd);
     }
@@ -661,7 +664,7 @@ public class DirectCompilerVisitor extends FEEL_1_1BaseVisitor<DirectCompilerRes
     private FieldDeclaration fieldDeclarationOf(String prefix, String originalText, Expression initializer) {
         String constantName = prefix + "_" + CodegenStringUtil.escapeIdentifier(originalText);
         return new FieldDeclaration(
-                EnumSet.of(Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL),
+                NodeList.nodeList(publicModifier(), staticModifier(), finalModifier()),
                 new VariableDeclarator(
                         JavaParser.parseClassOrInterfaceType(Range.class.getCanonicalName()),
                         constantName,
@@ -777,9 +780,9 @@ public class DirectCompilerVisitor extends FEEL_1_1BaseVisitor<DirectCompilerRes
         VariableDeclarator vd = new VariableDeclarator(JavaParser.parseClassOrInterfaceType(UnaryTest.class.getCanonicalName()), constantName);
         vd.setInitializer(initializer);
         FieldDeclaration fd = new FieldDeclaration();
-        fd.setModifier(Modifier.PUBLIC, true);
-        fd.setModifier(Modifier.STATIC, true);
-        fd.setModifier(Modifier.FINAL, true);
+        fd.setModifier(Modifier.publicModifier().getKeyword(), true);
+        fd.setModifier(Modifier.staticModifier().getKeyword(), true);
+        fd.setModifier(Modifier.finalModifier().getKeyword(), true);
         fd.addVariable(vd);
 
         fd.setJavadocComment(" FEEL unary test: " + originalText + " ");
@@ -809,9 +812,9 @@ public class DirectCompilerVisitor extends FEEL_1_1BaseVisitor<DirectCompilerRes
         VariableDeclarator vd = new VariableDeclarator(JavaParser.parseClassOrInterfaceType(UnaryTest.class.getCanonicalName()), constantName);
         vd.setInitializer(initializer);
         FieldDeclaration fd = new FieldDeclaration();
-        fd.setModifier(Modifier.PUBLIC, true);
-        fd.setModifier(Modifier.STATIC, true);
-        fd.setModifier(Modifier.FINAL, true);
+        fd.setModifier(Modifier.publicModifier().getKeyword(), true);
+        fd.setModifier(Modifier.staticModifier().getKeyword(), true);
+        fd.setModifier(Modifier.finalModifier().getKeyword(), true);
         fd.addVariable(vd);
 
         fd.setJavadocComment(" FEEL unary test: " + originalText + " ");
@@ -843,9 +846,9 @@ public class DirectCompilerVisitor extends FEEL_1_1BaseVisitor<DirectCompilerRes
         VariableDeclarator vd = new VariableDeclarator(JavaParser.parseClassOrInterfaceType(UnaryTest.class.getCanonicalName()), constantName);
         vd.setInitializer(initializer);
         FieldDeclaration fd = new FieldDeclaration();
-        fd.setModifier(Modifier.PUBLIC, true);
-        fd.setModifier(Modifier.STATIC, true);
-        fd.setModifier(Modifier.FINAL, true);
+        fd.setModifier(Modifier.publicModifier().getKeyword(), true);
+        fd.setModifier(Modifier.staticModifier().getKeyword(), true);
+        fd.setModifier(Modifier.finalModifier().getKeyword(), true);
         fd.addVariable(vd);
 
         fd.setJavadocComment(" FEEL unary test: " + originalText + " ");
@@ -876,9 +879,9 @@ public class DirectCompilerVisitor extends FEEL_1_1BaseVisitor<DirectCompilerRes
         VariableDeclarator vd = new VariableDeclarator(JavaParser.parseClassOrInterfaceType(UnaryTest.class.getCanonicalName()), constantName);
         vd.setInitializer(initializer);
         FieldDeclaration fd = new FieldDeclaration();
-        fd.setModifier(Modifier.PUBLIC, true);
-        fd.setModifier(Modifier.STATIC, true);
-        fd.setModifier(Modifier.FINAL, true);
+        fd.setModifier(Modifier.publicModifier().getKeyword(), true);
+        fd.setModifier(Modifier.staticModifier().getKeyword(), true);
+        fd.setModifier(Modifier.finalModifier().getKeyword(), true);
         fd.addVariable(vd);
 
         fd.setJavadocComment(" FEEL unary test: " + originalText + " ");
@@ -900,9 +903,9 @@ public class DirectCompilerVisitor extends FEEL_1_1BaseVisitor<DirectCompilerRes
         VariableDeclarator vd = new VariableDeclarator(JavaParser.parseClassOrInterfaceType(UnaryTest.class.getCanonicalName()), constantName);
         vd.setInitializer(initializer);
         FieldDeclaration fd = new FieldDeclaration();
-        fd.setModifier(Modifier.PUBLIC, true);
-        fd.setModifier(Modifier.STATIC, true);
-        fd.setModifier(Modifier.FINAL, true);
+        fd.setModifier(Modifier.publicModifier().getKeyword(), true);
+        fd.setModifier(Modifier.staticModifier().getKeyword(), true);
+        fd.setModifier(Modifier.finalModifier().getKeyword(), true);
         fd.addVariable(vd);
 
         fd.setJavadocComment(" FEEL unary test: - ");
