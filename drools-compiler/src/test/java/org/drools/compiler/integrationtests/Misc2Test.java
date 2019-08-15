@@ -9112,26 +9112,4 @@ public class Misc2Test extends CommonTestMethodBase {
 
         assertEquals(2, fired);
     }
-
-
-    @Test
-    public void testMvelJitDivision() {
-        // DROOLS-2928
-        String drl = "import " + Person.class.getName() + ";\n"
-                + "rule R1 when\n"
-                + "  Person( name == \"John\", $age1 : age )\n"
-                + "  Person( name == \"Paul\", age > ((2*$age1)/3) )\n"
-                + "then end\n";
-
-        KieSession ksession = new KieHelper().addContent(drl, ResourceType.DRL).build(ConstraintJittingThresholdOption.get(0)).newKieSession();
-
-        Person john = new Person("John", 20);
-        ksession.insert(john);
-        Person paul = new Person("Paul", 20);
-        ksession.insert(paul);
-
-        int fired = ksession.fireAllRules();
-
-        assertEquals(1, fired);
-    }
 }

@@ -19,7 +19,6 @@ package org.drools.modelcompiler.builder.generator;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -69,7 +68,7 @@ import org.drools.modelcompiler.builder.generator.visitor.ModelGeneratorVisitor;
 import org.kie.soup.project.datamodel.commons.types.TypeResolver;
 
 import static java.util.stream.Collectors.toList;
-import static com.github.javaparser.JavaParser.parseExpression;
+import static com.github.javaparser.StaticJavaParser.parseExpression;
 import static org.drools.modelcompiler.builder.PackageModel.DATE_TIME_FORMATTER_FIELD;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.classToReferenceType;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.generateLambdaWithoutParameters;
@@ -436,7 +435,7 @@ public class ModelGenerator {
 
         MethodCallExpr declarationOfCall = new MethodCallExpr(null, DECLARATION_OF_CALL);
 
-        declarationOfCall.addArgument(new ClassExpr(decl.getType() ));
+        declarationOfCall.addArgument(new ClassExpr(decl.getBoxedType() ));
         declarationOfCall.addArgument(new StringLiteralExpr(decl.getVariableName().orElse(decl.getBindingId())));
 
         decl.getDeclarationSource().ifPresent(declarationOfCall::addArgument);

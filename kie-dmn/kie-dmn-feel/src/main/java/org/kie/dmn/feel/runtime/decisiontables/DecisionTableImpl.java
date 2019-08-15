@@ -191,14 +191,13 @@ public class DecisionTableImpl implements DecisionTable {
     }
 
     private Object[] resolveActualInputs(EvaluationContext ctx, FEEL feel) {
-        Map<String, Object> variables = ctx.getAllValues();
         Object[] actualInputs = new Object[ inputs.size() ];
         for( int i = 0; i < inputs.size(); i++ ) {
             CompiledExpression compiledInput = inputs.get( i ).getCompiledInput();
             if( compiledInput != null ) {
-                actualInputs[i] = feel.evaluate( compiledInput, variables );
+                actualInputs[i] = feel.evaluate(compiledInput, ctx);
             } else {
-                actualInputs[i] = feel.evaluate( inputs.get( i ).getInputExpression(), variables );
+                actualInputs[i] = feel.evaluate(inputs.get(i).getInputExpression(), ctx);
             }
         }
         return actualInputs;
@@ -217,7 +216,14 @@ public class DecisionTableImpl implements DecisionTable {
             // if a list of values is defined, check the the parameter matches the value
             if ( input.getInputValues() != null && ! input.getInputValues().isEmpty() ) {
                 final Object parameter = params[i];
-                boolean satisfies = input.getInputValues().stream().map( ut -> ut.apply( ctx, parameter ) ).filter( Boolean::booleanValue ).findAny().orElse( false );
+                boolean satisfies = true;
+                if (input.isCollection() && parameter instanceof Collection) {
+                    for (Object parameterItem : (Collection<?>) parameter) {
+                        satisfies &= input.getInputValues().stream().map(ut -> ut.apply(ctx, parameterItem)).filter(x -> x != null && x).findAny().orElse(false);
+                    }
+                } else {
+                    satisfies = input.getInputValues().stream().map(ut -> ut.apply(ctx, parameter)).filter(x -> x != null && x).findAny().orElse(false);
+                }
 
                 if ( !satisfies ) {
                     String values = input.getInputValuesText();
@@ -300,14 +306,13 @@ public class DecisionTableImpl implements DecisionTable {
      */
     private Object hitToOutput(EvaluationContext ctx, FEEL feel, DTDecisionRule rule) {
         List<CompiledExpression> outputEntries = rule.getOutputEntry();
-        Map<String, Object> values = ctx.getAllValues();
         if ( outputEntries.size() == 1 ) {
-            Object value = feel.evaluate( outputEntries.get( 0 ), values );
+            Object value = feel.evaluate(outputEntries.get(0), ctx);
             return value;
         } else {
             Map<String, Object> output = new HashMap<>();
             for (int i = 0; i < outputs.size(); i++) {
-                output.put(outputs.get(i).getName(), feel.evaluate(outputEntries.get(i), values));
+                output.put(outputs.get(i).getName(), feel.evaluate(outputEntries.get(i), ctx));
             }
             return output;
         }

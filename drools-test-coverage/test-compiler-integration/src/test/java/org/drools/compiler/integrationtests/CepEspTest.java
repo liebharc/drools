@@ -2911,28 +2911,28 @@ public class CepEspTest extends AbstractCepEspTest {
     @Test
     public void testDeserializationWithTrackableTimerJob() throws InterruptedException {
         final String drl = "package org.drools.test;\n" +
-                     "import " + StockTick.class.getCanonicalName() + "; \n" +
-                     "global java.util.List list;\n" +
-                     "\n" +
-                     "declare StockTick\n" +
-                     "  @role( event )\n" +
-                     "  @expires( 1s )\n" +
-                     "end\n" +
-                     "\n" +
-                     "rule \"One\"\n" +
-                     "when\n" +
-                     "  StockTick( $id : seq, company == \"AAA\" ) over window:time( 1s )\n" +
-                     "then\n" +
-                     "  list.add( $id ); \n" +
-                     "end\n" +
-                     "\n" +
-                     "rule \"Two\"\n" +
-                     "when\n" +
-                     "  StockTick( $id : seq, company == \"BBB\" ) \n" +
-                     "then\n" +
-                     "  System.out.println( $id ); \n" +
-                     "  list.add( $id );\n" +
-                     "end";
+                "import " + StockTick.class.getCanonicalName() + "; \n" +
+                "global java.util.List list;\n" +
+                "\n" +
+                "declare StockTick\n" +
+                "  @role( event )\n" +
+                "  @expires( 1s )\n" +
+                "end\n" +
+                "\n" +
+                "rule \"One\"\n" +
+                "when\n" +
+                "  StockTick( $id : seq, company == \"AAA\" ) over window:time( 1s )\n" +
+                "then\n" +
+                "  list.add( $id ); \n" +
+                "end\n" +
+                "\n" +
+                "rule \"Two\"\n" +
+                "when\n" +
+                "  StockTick( $id : seq, company == \"BBB\" ) \n" +
+                "then\n" +
+                "  System.out.println( $id ); \n" +
+                "  list.add( $id );\n" +
+                "end";
 
         final KieBase kbase = KieBaseUtil.getKieBaseFromKieModuleFromDrl("cep-esp-test", kieBaseTestConfiguration, drl);
         final KieSessionConfiguration kieSessionConfiguration = KieSessionTestConfiguration.STATEFUL_REALTIME.getKieSessionConfiguration();
@@ -2960,6 +2960,41 @@ public class CepEspTest extends AbstractCepEspTest {
 
             assertEquals(2, list.size());
             assertEquals(Arrays.asList(2L, 3L), list);
+        } finally {
+            ks.dispose();
+        }
+    }
+
+    @Test
+    public void testDeserializationWithTrackableTimerJobShortExpiration() {
+        final String drl = "package org.drools.test;\n" +
+                "import " + StockTick.class.getCanonicalName() + "; \n" +
+                "global java.util.List list;\n" +
+                "\n" +
+                "declare StockTick\n" +
+                "  @role( event )\n" +
+                "  @expires( 1ms )\n" +
+                "end\n" +
+                "rule \"Two\"\n" +
+                "when\n" +
+                "  StockTick( $id : seq, company == \"BBB\" ) \n" +
+                "then\n" +
+                "  System.out.println( $id ); \n" +
+                "  list.add( $id );\n" +
+                "end";
+
+        final KieBase kbase = KieBaseUtil.getKieBaseFromKieModuleFromDrl("cep-esp-test", kieBaseTestConfiguration, drl);
+        final KieSessionConfiguration kieSessionConfiguration = KieSessionTestConfiguration.STATEFUL_REALTIME.getKieSessionConfiguration();
+        kieSessionConfiguration.setOption(TimerJobFactoryOption.get("trackable"));
+        KieSession ks = kbase.newKieSession(kieSessionConfiguration, null);
+        try {
+            ks.insert(new StockTick(2, "BBB", 1.0, 0));
+            try {
+                ks = SerializationHelper.getSerialisedStatefulKnowledgeSession(ks, true);
+            } catch (final Exception e) {
+                e.printStackTrace();
+                fail(e.getMessage());
+            }
         } finally {
             ks.dispose();
         }
@@ -5661,4 +5696,45 @@ public class CepEspTest extends AbstractCepEspTest {
             ksession.dispose();
         }
     }
+
+    @Test
+    public void testCollectExpiredEvent() {
+        // DROOLS-4393
+        final String drl =
+                "import java.util.Collection\n" +
+                "declare Integer @role( event ) @expires( 3h ) end\n" +
+                "declare Long @role( event ) @expires( 3h ) end\n" +
+                " " +
+                "rule SAME when\n" +
+                "  $i: Integer()\n" +
+                "  Long( intValue == $i )\n" +
+                "then\n" +
+                "  System.out.println(\"SAME\");\n" +
+                "end\n" +
+                "rule COLLECT when\n" +
+                "  Collection(size > 2) from collect (Number())\n" +
+                "then\n" +
+                "  System.out.println(\"COLLECT\");\n" +
+                "end";
+
+        final KieBase kbase = KieBaseUtil.getKieBaseFromKieModuleFromDrl("cep-esp-test", kieBaseTestConfiguration, drl);
+        final KieSession ksession = kbase.newKieSession(KieSessionTestConfiguration.STATEFUL_PSEUDO.getKieSessionConfiguration(), null);
+        try {
+
+            SessionPseudoClock clock = (( SessionPseudoClock ) ksession.getSessionClock());
+
+            ksession.insert(1);
+            clock.advanceTime(2, TimeUnit.HOURS);
+            ksession.insert(2L);
+            assertEquals(0, ksession.fireAllRules());
+
+            clock.advanceTime(2, TimeUnit.HOURS); // Should expire first event
+            ksession.insert(1L);
+            assertEquals(0, ksession.fireAllRules());
+
+        } finally {
+            ksession.dispose();
+        }
+    }
+
 }

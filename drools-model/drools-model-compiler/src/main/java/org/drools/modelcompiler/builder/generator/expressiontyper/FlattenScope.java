@@ -8,9 +8,9 @@ import com.github.javaparser.ast.expr.ArrayAccessExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
-import org.drools.constraint.parser.ast.expr.InlineCastExpr;
-import org.drools.constraint.parser.ast.expr.NullSafeFieldAccessExpr;
-import org.drools.constraint.parser.ast.expr.NullSafeMethodCallExpr;
+import org.drools.mvel.parser.ast.expr.InlineCastExpr;
+import org.drools.mvel.parser.ast.expr.NullSafeFieldAccessExpr;
+import org.drools.mvel.parser.ast.expr.NullSafeMethodCallExpr;
 
 public class FlattenScope {
 
@@ -27,13 +27,13 @@ public class FlattenScope {
         } else if (expressionWithScope instanceof MethodCallExpr) {
             MethodCallExpr methodCallExpr = (MethodCallExpr) expressionWithScope;
             if (methodCallExpr.getScope().isPresent()) {
-                res.addAll(flattenScope(methodCallExpr.getScope().get()));
+                res.addAll(flattenScope(methodCallExpr.getScope().orElseThrow(() -> new IllegalStateException("Scope expression is not present!"))));
             }
             res.add(methodCallExpr);
         } else if (expressionWithScope instanceof NullSafeMethodCallExpr) {
             NullSafeMethodCallExpr methodCallExpr = (NullSafeMethodCallExpr) expressionWithScope;
             if (methodCallExpr.getScope().isPresent()) {
-                res.addAll(flattenScope(methodCallExpr.getScope().get()));
+                res.addAll(flattenScope(methodCallExpr.getScope().orElseThrow(() -> new IllegalStateException("Scope expression is not present!"))));
             }
             res.add(methodCallExpr);
         } else if (expressionWithScope instanceof InlineCastExpr && ((InlineCastExpr) expressionWithScope).getExpression() instanceof FieldAccessExpr) {

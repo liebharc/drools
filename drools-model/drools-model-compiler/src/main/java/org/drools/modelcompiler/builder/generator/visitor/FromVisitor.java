@@ -6,7 +6,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
-import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
@@ -19,9 +18,9 @@ import com.github.javaparser.ast.nodeTypes.NodeWithArguments;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import org.drools.compiler.lang.descr.FromDescr;
 import org.drools.compiler.lang.descr.PatternSourceDescr;
-import org.drools.constraint.parser.ast.expr.DrlNameExpr;
-import org.drools.constraint.parser.ast.expr.DrlxExpression;
-import org.drools.constraint.parser.printer.PrintUtil;
+import org.drools.mvel.parser.ast.expr.DrlNameExpr;
+import org.drools.mvel.parser.ast.expr.DrlxExpression;
+import org.drools.mvel.parser.printer.PrintUtil;
 import org.drools.modelcompiler.builder.PackageModel;
 import org.drools.modelcompiler.builder.errors.InvalidExpressionErrorResult;
 import org.drools.modelcompiler.builder.generator.DeclarationSpec;
@@ -33,6 +32,7 @@ import org.drools.modelcompiler.builder.generator.drlxparse.DrlxParseResult;
 import org.drools.modelcompiler.builder.generator.drlxparse.SingleDrlxParseSuccess;
 import org.drools.modelcompiler.builder.generator.expressiontyper.ExpressionTyper;
 
+import static com.github.javaparser.StaticJavaParser.parseExpression;
 import static java.util.Optional.of;
 import static org.drools.core.rule.Pattern.isCompatibleWithFromReturnType;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.findViaScopeWithPredicate;
@@ -235,6 +235,6 @@ public class FromVisitor {
     }
 
     private Expression createUnitDataCall( String bindingId ) {
-        return JavaParser.parseExpression(DrlxParseUtil.toVar(bindingId));
+        return parseExpression(DrlxParseUtil.toVar(bindingId));
     }
 }

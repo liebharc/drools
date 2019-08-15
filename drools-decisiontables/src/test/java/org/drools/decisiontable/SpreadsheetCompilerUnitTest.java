@@ -85,6 +85,36 @@ public class SpreadsheetCompilerUnitTest {
     }
 
     @Test
+    public void testMultilineActions() {
+        final SpreadsheetCompiler converter = new SpreadsheetCompiler();
+        final InputStream stream = this.getClass().getResourceAsStream("MultiLinesInAction.xls");
+        final String drl = converter.compile(stream,
+                                             InputType.XLS);
+
+        Assertions.assertThat(drl).doesNotContain("\\n");
+    }
+
+    @Test
+    public void testMultilineActionsAndMultiLineInConstant() {
+        final SpreadsheetCompiler converter = new SpreadsheetCompiler();
+        final InputStream stream = this.getClass().getResourceAsStream("MultiLinesInActionAndMultiLineInConstant.xls");
+        final String drl = converter.compile(stream,
+                                             InputType.XLS);
+
+        Assertions.assertThat(drl).contains(" **\n** ");
+    }
+
+    @Test
+    public void testMultilineActionsAndMultiLineAsConstant() {
+        final SpreadsheetCompiler converter = new SpreadsheetCompiler();
+        final InputStream stream = this.getClass().getResourceAsStream("MultiLinesInActionAndMultiLineAsConstant.xls");
+        final String drl = converter.compile(stream,
+                                             InputType.XLS);
+
+        Assertions.assertThat(drl).contains(" **\\n** ");
+    }
+
+    @Test
     public void testMultilineCommentsInDescription() {
         final SpreadsheetCompiler converter = new SpreadsheetCompiler();
         final InputStream stream = this.getClass().getResourceAsStream("/data/Multiline comment example.xls");
@@ -469,7 +499,7 @@ public class SpreadsheetCompilerUnitTest {
 
         assertNotNull( drl );
 
-        final String expected = "package Some_business_rules;\n" +
+        final String expected = "package data;\n" +
                 "//generated from Decision Table\n" +
                 "import org.drools.decisiontable.Person;\n" +
                 "// rule values at C10, header at C5\n" +
@@ -517,7 +547,7 @@ public class SpreadsheetCompilerUnitTest {
 
         assertNotNull( drl );
 
-        final String expected = "package Some_business_rules;\n" +
+        final String expected = "package data;\n" +
                 "//generated from Decision Table\n" +
                 "import org.drools.decisiontable.Person;\n" +
                 "// rule values at C10, header at C5\n" +
@@ -567,7 +597,7 @@ public class SpreadsheetCompilerUnitTest {
 
         assertNotNull( drl );
 
-        final String expected = "package Some_business_rules;\n" +
+        final String expected = "package data;\n" +
                 "//generated from Decision Table\n" +
                 "import org.drools.decisiontable.Person;\n" +
                 "// rule values at C10, header at C5\n" +
@@ -619,7 +649,7 @@ public class SpreadsheetCompilerUnitTest {
 
         assertNotNull( drl );
 
-        final String expected = "package Connexis_Cash_Enrichment;\n" +
+        final String expected = "package data;\n" +
                 "//generated from Decision Table\n" +
                 "import com.brms.dto.fact.*;\n" +
                 "dialect \"mvel\";\n" +
@@ -755,7 +785,7 @@ public class SpreadsheetCompilerUnitTest {
 
         assertNotNull( drl );
 
-        final String expected = "package com.sample;\n" +
+        final String expected = "package data;\n" +
                 "//generated from Decision Table\n" +
                 "import com.sample.DecisionTableTest.Message;\n" +
                 "dialect \"mvel\"\n" +

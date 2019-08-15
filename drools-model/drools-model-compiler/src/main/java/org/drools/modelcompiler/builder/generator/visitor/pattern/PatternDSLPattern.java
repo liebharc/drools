@@ -24,7 +24,7 @@ import static org.drools.modelcompiler.builder.generator.DslMethodNames.WATCH_CA
 class PatternDSLPattern extends PatternDSL {
 
     protected PatternDSLPattern(RuleContext context, PackageModel packageModel, PatternDescr pattern, List<? extends BaseDescr> constraintDescrs, Class<?> patternType, boolean allConstraintsPositional) {
-        super(context, packageModel, pattern, constraintDescrs, allConstraintsPositional, patternType);
+        super(context, packageModel, pattern, constraintDescrs, patternType);
     }
 
     @Override
@@ -69,8 +69,9 @@ class PatternDSLPattern extends PatternDSL {
     private MethodCallExpr createPatternExpression(PatternDescr pattern, DeclarationSpec declarationSpec) {
         MethodCallExpr dslExpr = new MethodCallExpr(null, PATTERN_CALL);
         dslExpr.addArgument( context.getVarExpr( pattern.getIdentifier()) );
-        if (context.isQuery() && declarationSpec.getDeclarationSource().isPresent()) {
-            dslExpr.addArgument( declarationSpec.getDeclarationSource().get() );
+        if (context.isQuery()) {
+            Optional<Expression> declarationSource = declarationSpec.getDeclarationSource();
+            declarationSource.ifPresent(dslExpr::addArgument);
         }
         return dslExpr;
     }

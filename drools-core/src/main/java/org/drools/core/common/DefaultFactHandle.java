@@ -20,11 +20,11 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
+
 import javax.xml.bind.annotation.XmlAccessType;
 import javax.xml.bind.annotation.XmlAccessorType;
 import javax.xml.bind.annotation.XmlAttribute;
 import javax.xml.bind.annotation.XmlRootElement;
-
 import org.drools.core.WorkingMemoryEntryPoint;
 import org.drools.core.base.TraitHelper;
 import org.drools.core.datasources.InternalDataSource;
@@ -34,6 +34,7 @@ import org.drools.core.impl.InternalKnowledgeBase;
 import org.drools.core.reteoo.LeftTuple;
 import org.drools.core.reteoo.ObjectTypeNode;
 import org.drools.core.reteoo.RightTuple;
+import org.drools.core.rule.EntryPointId;
 import org.drools.core.spi.Tuple;
 import org.drools.core.util.AbstractBaseLinkedListNode;
 import org.drools.core.util.StringUtils;
@@ -57,14 +58,14 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
 
     static final String     FACT_FORMAT_VERSION = "0";
 
-    private int                     id;
+    private long                    id;
     private long                    recency;
     private Object                  object;
     private EqualityKey             key;
     private int                     objectHashCode;
     private int                     identityHashCode;
 
-    private WorkingMemoryEntryPoint entryPoint;
+    private EntryPointId            entryPointId;
 
     private boolean                 disconnected;
 
@@ -80,6 +81,8 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
 
     private InternalFactHandle      parentHandle;
 
+    protected transient WorkingMemoryEntryPoint wmEntryPoint;
+
     // ----------------------------------------------------------------------
     // Constructors
     // ----------------------------------------------------------------------
@@ -87,8 +90,7 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
     public DefaultFactHandle() {
     }
 
-    public DefaultFactHandle(final int id,
-            final Object object) {
+    public DefaultFactHandle(final long id, final Object object) {
         // this is only used by tests, left as legacy as so many test rely on it.
         this( id,
               object,
@@ -103,14 +105,14 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
      * @param id
      *            Handle id.
      */
-    public DefaultFactHandle(final int id,
+    public DefaultFactHandle(final long id,
                              final Object object,
                              final long recency,
                              final WorkingMemoryEntryPoint wmEntryPoint) {
         this( id, determineIdentityHashCode( object ), object, recency, wmEntryPoint, false );
     }
 
-    public DefaultFactHandle(final int id,
+    public DefaultFactHandle(final long id,
                              final Object object,
                              final long recency,
                              final WorkingMemoryEntryPoint wmEntryPoint,
@@ -118,28 +120,43 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
         this( id, determineIdentityHashCode( object ), object, recency, wmEntryPoint, isTraitOrTraitable );
     }
 
-    public DefaultFactHandle(final int id,
+    public DefaultFactHandle(final long id,
                              final int identityHashCode,
                              final Object object,
                              final long recency,
                              final WorkingMemoryEntryPoint wmEntryPoint,
                              final boolean isTraitOrTraitable ) {
+        this(id, identityHashCode, object, recency, wmEntryPoint == null ? null : wmEntryPoint.getEntryPoint(), determineTraitType(object, isTraitOrTraitable));
+        if (wmEntryPoint != null) {
+            setLinkedTuples( wmEntryPoint.getKnowledgeBase() );
+            this.wmEntryPoint = wmEntryPoint;
+        } else {
+            this.linkedTuples = new SingleLinkedTuples();
+        }
+    }
+
+    protected DefaultFactHandle(final long id,
+                             final int identityHashCode,
+                             final Object object,
+                             final long recency,
+                             final EntryPointId entryPointId,
+                             final TraitTypeEnum traitType ) {
         this.id = id;
-        setEntryPoint( wmEntryPoint );
+        this.entryPointId = entryPointId;
         this.recency = recency;
         setObject( object );
         this.identityHashCode = identityHashCode;
-        this.traitType = isTraitOrTraitable ? determineTraitType() : TraitTypeEnum.NON_TRAIT;
+        this.traitType = traitType;
     }
 
-    public DefaultFactHandle(int id,
+    public DefaultFactHandle(long id,
             String wmEntryPointId,
             int identityHashCode,
             int objectHashCode,
             long recency,
             Object object) {
         this.id = id;
-        setEntryPoint( ( wmEntryPointId == null ) ? null : new DisconnectedWorkingMemoryEntryPoint( wmEntryPointId ) );
+        this.entryPointId = new EntryPointId( wmEntryPointId );
         this.recency = recency;
         setObject( object );
         this.identityHashCode = identityHashCode;
@@ -162,9 +179,7 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
     public void disconnect() {
         this.key = null;
         this.linkedTuples = null;
-        this.entryPoint = ( this.entryPoint == null ) ?
-                          null :
-                          new DisconnectedWorkingMemoryEntryPoint( this.entryPoint.getEntryPointId() );
+        this.entryPointId = null;
         this.disconnected = true;
     }
 
@@ -221,7 +236,7 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
      * @see Object
      */
     public int hashCode() {
-        return this.id;
+        return Long.hashCode(this.id);
     }
 
     /**
@@ -238,7 +253,7 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
                ":" +
                getRecency() +
                ":" +
-               ( ( this.entryPoint != null ) ? this.entryPoint.getEntryPointId() : "null" ) +
+                ( ( this.entryPointId != null ) ? this.entryPointId.getEntryPointId() : "null" ) +
                ":" +
                this.traitType.name() +
                ":" +
@@ -273,7 +288,7 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
         this.recency = recency;
     }
 
-    public int getId() {
+    public long getId() {
         return this.id;
     }
 
@@ -303,7 +318,7 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
         }
 
         if ( isTraitOrTraitable() ) {
-            TraitTypeEnum newType = determineTraitType();
+            TraitTypeEnum newType = determineTraitType(object, isTraitOrTraitable());
             if ( ! ( this.traitType == TraitTypeEnum.LEGACY_TRAITABLE && newType != TraitTypeEnum.LEGACY_TRAITABLE ) ) {
                 this.identityHashCode = determineIdentityHashCode( object );
             } else {
@@ -341,13 +356,19 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
         return traitType != TraitTypeEnum.NON_TRAIT;
     }
 
-    public WorkingMemoryEntryPoint getEntryPoint() {
-        return entryPoint;
+    public InternalWorkingMemory getWorkingMemory() {
+        return wmEntryPoint.getInternalWorkingMemory();
     }
 
-    public void setEntryPoint( WorkingMemoryEntryPoint sourceNode ) {
-        this.entryPoint = sourceNode;
-        setLinkedTuples( entryPoint != null ? entryPoint.getKnowledgeBase() : null );
+    public EntryPointId getEntryPointId() {
+        return entryPointId;
+    }
+
+    public WorkingMemoryEntryPoint getEntryPoint(InternalWorkingMemory wm) {
+        if (wmEntryPoint == null) {
+            wmEntryPoint = (WorkingMemoryEntryPoint) wm.getEntryPoint( entryPointId.getEntryPointId() );
+        }
+        return wmEntryPoint;
     }
 
     private void setLinkedTuples( InternalKnowledgeBase kbase ) {
@@ -393,15 +414,14 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
     }
 
     public DefaultFactHandle clone() {
-        DefaultFactHandle clone = new DefaultFactHandle( this.id, this.object, this.recency, this.entryPoint );
+        DefaultFactHandle clone = new DefaultFactHandle( this.id, this.identityHashCode, this.object, this.recency, this.entryPointId, traitType );
         clone.key = this.key;
         clone.linkedTuples = this.linkedTuples.clone();
 
         clone.objectHashCode = this.objectHashCode;
-        clone.identityHashCode = System.identityHashCode( clone.object );
         clone.disconnected = this.disconnected;
-		clone.traitType = this.traitType;
         clone.negated = this.negated;
+        clone.wmEntryPoint = this.wmEntryPoint;
         return clone;
     }
 
@@ -436,16 +456,16 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
         handle.identityHashCode = Integer.parseInt( elements[2] );
         handle.objectHashCode = Integer.parseInt( elements[3] );
         handle.recency = Long.parseLong( elements[4] );
-        handle.setEntryPoint( ( StringUtils.isEmpty( elements[5] ) || "null".equals( elements[5].trim() ) ) ?
+        handle.entryPointId = StringUtils.isEmpty( elements[5] ) || "null".equals( elements[5].trim() ) ?
                             null :
-                            new DisconnectedWorkingMemoryEntryPoint( elements[5].trim() ) );
+                            new EntryPointId( elements[5].trim() );
         handle.disconnected = true;
         handle.traitType = elements.length > 6 ? TraitTypeEnum.valueOf( elements[6] ) : TraitTypeEnum.NON_TRAIT;
         handle.objectClassName = elements.length > 7 ? elements[7] : null;
     }
 
-    private TraitTypeEnum determineTraitType() {
-        if ( isTraitOrTraitable() ) {
+    private static TraitTypeEnum determineTraitType(Object object, boolean isTraitOrTraitable) {
+        if ( isTraitOrTraitable ) {
             return TraitFactory.determineTraitType( object );
         } else {
             return TraitTypeEnum.NON_TRAIT;
@@ -490,6 +510,11 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
             clone.firstRightTuple = this.firstRightTuple;
             clone.lastRightTuple = this.lastRightTuple;
             return clone;
+        }
+
+        @Override
+        public LinkedTuples newInstance() {
+            return new SingleLinkedTuples();
         }
 
         public void addFirstLeftTuple( LeftTuple leftTuple ) {
@@ -749,6 +774,11 @@ public class DefaultFactHandle extends AbstractBaseLinkedListNode<DefaultFactHan
             for (int i = 0; i < partitionedTuples.length; i++) {
                 partitionedTuples[i] = new SingleLinkedTuples();
             }
+        }
+
+        @Override
+        public LinkedTuples newInstance() {
+            return new CompositeLinkedTuples();
         }
 
         @Override

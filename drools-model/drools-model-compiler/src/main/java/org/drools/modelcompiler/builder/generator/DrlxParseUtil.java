@@ -22,8 +22,8 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
-import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseProblemException;
+import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.Parameter;
@@ -51,6 +51,7 @@ import com.github.javaparser.ast.expr.NullLiteralExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.SimpleName;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.expr.ThisExpr;
 import com.github.javaparser.ast.expr.UnaryExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithArguments;
 import com.github.javaparser.ast.nodeTypes.NodeWithOptionalScope;
@@ -64,24 +65,27 @@ import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.ast.type.UnknownType;
 import org.drools.compiler.lang.descr.AnnotationDescr;
 import org.drools.compiler.lang.descr.PatternDescr;
-import org.drools.constraint.parser.DrlxParser;
-import org.drools.constraint.parser.ast.expr.BigDecimalLiteralExpr;
-import org.drools.constraint.parser.ast.expr.BigIntegerLiteralExpr;
-import org.drools.constraint.parser.ast.expr.DrlNameExpr;
-import org.drools.constraint.parser.ast.expr.DrlxExpression;
-import org.drools.constraint.parser.ast.expr.HalfBinaryExpr;
-import org.drools.constraint.parser.ast.expr.NullSafeFieldAccessExpr;
-import org.drools.constraint.parser.printer.PrintUtil;
 import org.drools.core.util.ClassUtils;
 import org.drools.core.util.StringUtils;
 import org.drools.core.util.index.IndexUtil;
 import org.drools.core.util.index.IndexUtil.ConstraintType;
 import org.drools.modelcompiler.builder.errors.InvalidExpressionErrorResult;
 import org.drools.modelcompiler.util.ClassUtil;
+import org.drools.mvel.parser.DrlxParser;
+import org.drools.mvel.parser.ast.expr.BigDecimalLiteralExpr;
+import org.drools.mvel.parser.ast.expr.BigIntegerLiteralExpr;
+import org.drools.mvel.parser.ast.expr.DrlNameExpr;
+import org.drools.mvel.parser.ast.expr.DrlxExpression;
+import org.drools.mvel.parser.ast.expr.HalfBinaryExpr;
+import org.drools.mvel.parser.ast.expr.MapCreationLiteralExpression;
+import org.drools.mvel.parser.ast.expr.NullSafeFieldAccessExpr;
+import org.drools.mvel.parser.printer.PrintUtil;
 import org.kie.soup.project.datamodel.commons.types.TypeResolver;
 
 import static java.util.Optional.of;
 import static java.util.stream.Collectors.toList;
+
+import static com.github.javaparser.StaticJavaParser.parseType;
 import static org.drools.modelcompiler.builder.generator.DslMethodNames.PATTERN_CALL;
 import static org.drools.modelcompiler.builder.generator.expressiontyper.ExpressionTyper.findLeftLeafOfNameExpr;
 import static org.drools.modelcompiler.util.ClassUtil.findMethod;
@@ -89,7 +93,13 @@ import static org.drools.modelcompiler.util.ClassUtil.toRawClass;
 
 public class DrlxParseUtil {
 
+    public static final String THIS_PLACEHOLDER = "_this";
+
     private static final Map<String, Method> accessorsCache = new HashMap<>();
+
+    public static boolean isThisExpression( Node expr ) {
+        return expr instanceof ThisExpr || (expr instanceof NameExpr && ((NameExpr)expr).getName().getIdentifier().equals(THIS_PLACEHOLDER));
+    }
 
     public static IndexUtil.ConstraintType toConstraintType(Operator operator) {
         switch (operator) {
@@ -107,23 +117,6 @@ public class DrlxParseUtil {
                 return ConstraintType.LESS_OR_EQUAL;
             default:
                 return ConstraintType.UNKNOWN;
-        }
-    }
-
-    public static Expression findLeftLeafOfMethodCall(Expression expression) {
-        if (expression instanceof BinaryExpr) {
-            BinaryExpr be = (BinaryExpr) expression;
-            return findLeftLeafOfMethodCall(be.getLeft());
-        }
-        if (expression instanceof CastExpr) {
-            CastExpr ce = (CastExpr) expression;
-            return findLeftLeafOfMethodCall(ce.getExpression());
-        } else if (expression instanceof MethodCallExpr) {
-            return expression;
-        } else if (expression instanceof FieldAccessExpr) {
-            return expression;
-        } else {
-            throw new UnsupportedOperationException("Unknown expression: " + expression);
         }
     }
 
@@ -151,13 +144,13 @@ public class DrlxParseUtil {
             }
         }
         if (clazz.isArray() && name.equals( "length" )) {
-            FieldAccessExpr expr = new FieldAccessExpr( scope != null ? scope : new NameExpr( "_this" ), name );
+            FieldAccessExpr expr = new FieldAccessExpr( scope != null ? scope : new NameExpr( THIS_PLACEHOLDER ), name );
             return new TypedExpression( expr, int.class );
         }
         try {
             Field field = clazz.getField( name );
             if (scope == null) {
-                scope = new NameExpr(Modifier.isStatic( field.getModifiers() ) ? clazz.getCanonicalName() : "_this");
+                scope = new NameExpr(Modifier.isStatic( field.getModifiers() ) ? clazz.getCanonicalName() : THIS_PLACEHOLDER);
             }
             FieldAccessExpr expr = new FieldAccessExpr( scope, name );
             return new TypedExpression( expr, field.getType() );
@@ -187,6 +180,10 @@ public class DrlxParseUtil {
             return getClassFromContext(typeResolver, ((ArrayCreationExpr) expr).getElementType().asString());
         }
 
+        if (expr instanceof MapCreationLiteralExpression) {
+            return Map.class;
+        }
+
         if (expr instanceof NameExpr) {
             return expressionTypeNameExpr(context, usedDeclarations, ((NameExpr) expr).getNameAsString());
         }
@@ -200,8 +197,13 @@ public class DrlxParseUtil {
 
         if (expr instanceof MethodCallExpr) {
             MethodCallExpr methodCallExpr = ( MethodCallExpr ) expr;
-            java.lang.reflect.Type scopeType = getExpressionType(context, typeResolver, methodCallExpr.getScope().get(), usedDeclarations);
-            return returnTypeOfMethodCallExpr(context, typeResolver, methodCallExpr, scopeType, usedDeclarations);
+            Optional<Expression> scopeExpression = methodCallExpr.getScope();
+            if (scopeExpression.isPresent()) {
+                java.lang.reflect.Type scopeType = getExpressionType(context, typeResolver, scopeExpression.get(), usedDeclarations);
+                return returnTypeOfMethodCallExpr(context, typeResolver, methodCallExpr, scopeType, usedDeclarations);
+            } else {
+                throw new IllegalStateException("Scope expression is not present for " + ((MethodCallExpr) expr).getNameAsString() + "!");
+            }
         }
 
         if (expr instanceof ObjectCreationExpr) {
@@ -248,7 +250,8 @@ public class DrlxParseUtil {
         if (usedDeclarations != null) {
             usedDeclarations.add(name);
         }
-        return context.getDeclarationById( name ).map(DeclarationSpec::getDeclarationClass ).get();
+        Optional<java.lang.reflect.Type> type = context.getDeclarationById( name ).map(DeclarationSpec::getDeclarationClass );
+        return type.orElseThrow(() -> new IllegalArgumentException("Cannot get expression type by name " + name + "!"));
     }
 
     public static boolean canCoerceLiteralNumberExpr(Class<?> type) {
@@ -302,24 +305,19 @@ public class DrlxParseUtil {
 
     public static Expression prepend(Expression scope, Expression expr) {
         final Optional<Expression> rootNode = findRootNodeViaScope(expr);
-
-        if (!rootNode.isPresent()) {
-            throw new UnsupportedOperationException("No root found");
-        }
-
-        rootNode.map(f -> {
-            if (f instanceof NodeWithOptionalScope<?>) {
-                ((NodeWithOptionalScope) f).setScope(scope);
+        if (rootNode.isPresent()) {
+            if (rootNode.get() instanceof NodeWithOptionalScope<?>) {
+                ((NodeWithOptionalScope) rootNode.get()).setScope(scope);
             }
-            return f;
-        });
-
-        return expr;
+            return expr;
+        } else {
+            throw new IllegalStateException("No root node was found!");
+        }
     }
 
     public static Optional<Node> findRootNodeViaParent(Node expr) {
         final Optional<Node> parentNode = expr.getParentNode();
-        if(parentNode.isPresent()) {
+        if (parentNode.isPresent()) {
             return findRootNodeViaParent(parentNode.get());
         } else {
             return Optional.of(expr);
@@ -367,14 +365,16 @@ public class DrlxParseUtil {
             throw new RuntimeException("This doesn't work on arrayAccessExpr convert them to a method call");
         }
 
-        if (expr instanceof NodeWithTraversableScope) {
+        if (expr instanceof EnclosedExpr) {
+            return findRootNodeViaScopeRec(expr.asEnclosedExpr().getInner(), acc);
+        } else if (expr instanceof NodeWithTraversableScope) {
             final NodeWithTraversableScope exprWithScope = (NodeWithTraversableScope) expr;
 
             return exprWithScope.traverseScope().map((Expression scope) -> {
-                Expression sanitizedExpr = (Expression) DrlxParseUtil.transformDrlNameExprToNameExpr(expr);
+                Expression sanitizedExpr = DrlxParseUtil.transformDrlNameExprToNameExpr(expr);
                 acc.addLast(sanitizedExpr.clone());
                 return findRootNodeViaScopeRec(scope, acc);
-            }).orElse(new RemoveRootNodeResult(Optional.of(expr), expr));
+            }).orElse(new RemoveRootNodeResult(Optional.of(expr), expr, acc.isEmpty() ? expr : acc.getLast()));
         } else if (expr instanceof NameExpr || expr instanceof DrlNameExpr) {
             if(acc.size() > 0 && acc.getLast() instanceof NodeWithOptionalScope) {
                 ((NodeWithOptionalScope) acc.getLast()).setScope(null);
@@ -387,23 +387,25 @@ public class DrlxParseUtil {
                     }
                 }
 
-                return new RemoveRootNodeResult(Optional.of(expr), acc.getFirst());
+                return new RemoveRootNodeResult(Optional.of(expr), acc.getFirst(), acc.getLast());
             } else {
-                return new RemoveRootNodeResult(Optional.of(expr), expr);
+                return new RemoveRootNodeResult(Optional.of(expr), expr, expr);
             }
 
         }
 
-        return new RemoveRootNodeResult(Optional.empty(), expr);
+        return new RemoveRootNodeResult(Optional.empty(), expr, expr);
     }
 
     public static class RemoveRootNodeResult {
         private Optional<Expression> rootNode;
         private Expression withoutRootNode;
+        private Expression firstChild;
 
-        public RemoveRootNodeResult(Optional<Expression> rootNode, Expression withoutRootNode) {
+        public RemoveRootNodeResult(Optional<Expression> rootNode, Expression withoutRootNode, Expression firstChild) {
             this.rootNode = rootNode;
             this.withoutRootNode = withoutRootNode;
+            this.firstChild = firstChild;
         }
 
         public Optional<Expression> getRootNode() {
@@ -414,11 +416,16 @@ public class DrlxParseUtil {
             return withoutRootNode;
         }
 
+        public Expression getFirstChild() {
+            return firstChild;
+        }
+
         @Override
         public String toString() {
             return "RemoveRootNodeResult{" +
                     "rootNode=" + rootNode.map(PrintUtil::printConstraint) +
                     ", withoutRootNode=" + PrintUtil.printConstraint(withoutRootNode) +
+                    ", firstChild=" + PrintUtil.printConstraint(firstChild) +
                     '}';
         }
 
@@ -432,12 +439,13 @@ public class DrlxParseUtil {
             }
             RemoveRootNodeResult that = (RemoveRootNodeResult) o;
             return Objects.equals(rootNode.map(PrintUtil::printConstraint), that.rootNode.map(PrintUtil::printConstraint)) &&
-                    Objects.equals(PrintUtil.printConstraint(withoutRootNode), PrintUtil.printConstraint(that.withoutRootNode));
+                    Objects.equals(PrintUtil.printConstraint(withoutRootNode), PrintUtil.printConstraint(that.withoutRootNode)) &&
+                    Objects.equals(PrintUtil.printConstraint(firstChild), PrintUtil.printConstraint(that.firstChild));
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(rootNode, withoutRootNode);
+            return Objects.hash(rootNode, withoutRootNode, firstChild);
         }
     }
 
@@ -446,7 +454,7 @@ public class DrlxParseUtil {
     }
 
     public static BlockStmt parseBlock(String ruleConsequenceAsBlock) throws ParseProblemException {
-        return JavaParser.parseBlock(String.format("{%n%s%n}", ruleConsequenceAsBlock)); // if the RHS is composed only of a line of comment like `//do nothing.` then JavaParser would fail to recognize the ending }
+        return StaticJavaParser.parseBlock(String.format("{%n%s%n}", ruleConsequenceAsBlock)); // if the RHS is composed only of a line of comment like `//do nothing.` then JavaParser would fail to recognize the ending }
     }
 
     public static Expression generateLambdaWithoutParameters(Collection<String> usedDeclarations, Expression expr) {
@@ -466,7 +474,7 @@ public class DrlxParseUtil {
         LambdaExpr lambdaExpr = new LambdaExpr();
         lambdaExpr.setEnclosingParameters( true );
         if (!skipFirstParamAsThis) {
-            lambdaExpr.addParameter(new Parameter(new UnknownType(), "_this"));
+            lambdaExpr.addParameter(new Parameter(new UnknownType(), THIS_PLACEHOLDER));
         }
         usedDeclarations.stream().map( s -> new Parameter( new UnknownType(), s ) ).forEach( lambdaExpr::addParameter );
         lambdaExpr.setBody( new ExpressionStmt(expr) );
@@ -523,15 +531,14 @@ public class DrlxParseUtil {
 
     private static Expression createExpressionCall(Expression expr, Deque<ParsedMethod> expressions) {
 
-        if(expr instanceof NodeWithSimpleName) {
+        if (expr instanceof NodeWithSimpleName) {
             NodeWithSimpleName fae = (NodeWithSimpleName)expr;
             expressions.push(new ParsedMethod(expr, fae.getName().asString()));
         }
 
         if (expr instanceof NodeWithOptionalScope) {
             final NodeWithOptionalScope<?> exprWithScope = (NodeWithOptionalScope) expr;
-
-            exprWithScope.getScope().map((Expression scope) -> createExpressionCall(scope, expressions));
+            exprWithScope.getScope().ifPresent(expression -> createExpressionCall(expression, expressions));
         } else if (expr instanceof FieldAccessExpr) {
             // Cannot recurse over getScope() as FieldAccessExpr doesn't support the NodeWithOptionalScope,
             // it will support a new interface to traverse among scopes called NodeWithTraversableScope so
@@ -561,14 +568,14 @@ public class DrlxParseUtil {
     }
 
     public static Type classToReferenceType(Class<?> declClass) {
-        Type parsedType = JavaParser.parseType(declClass.getCanonicalName());
+        Type parsedType = parseType(declClass.getCanonicalName());
         return parsedType instanceof PrimitiveType ?
                 ((PrimitiveType) parsedType).toBoxedType() :
                 parsedType;
     }
 
     public static Type toType(Class<?> declClass) {
-        return JavaParser.parseType(declClass.getCanonicalName());
+        return parseType(declClass.getCanonicalName());
     }
 
     public static ClassOrInterfaceType toClassOrInterfaceType( Class<?> declClass ) {
@@ -576,7 +583,7 @@ public class DrlxParseUtil {
     }
 
     public static ClassOrInterfaceType toClassOrInterfaceType( String className ) {
-        return JavaParser.parseClassOrInterfaceType(className);
+        return StaticJavaParser.parseClassOrInterfaceType(className);
     }
 
     public static Optional<String> findBindingIdFromDotExpression(String expression) {
@@ -635,7 +642,12 @@ public class DrlxParseUtil {
     public static void forceCastForName(String nameRef, Type type, Expression expression) {
         List<NameExpr> allNameExprForName = expression.findAll(NameExpr.class, n -> n.getNameAsString().equals(nameRef));
         for (NameExpr n : allNameExprForName) {
-            n.getParentNode().get().replace(n, new EnclosedExpr(new CastExpr(type, n)));
+            Optional<Node> parentNode = n.getParentNode();
+            if (parentNode.isPresent()) {
+                parentNode.get().replace(n, new EnclosedExpr(new CastExpr(type, n)));
+            } else {
+                throw new IllegalStateException("Cannot find parent node for " + n.getNameAsString() + "!");
+            }
         }
     }
 
@@ -671,7 +683,12 @@ public class DrlxParseUtil {
                 if (names.contains(nameExpr.getNameAsString())) {
                     Expression prepend = new FieldAccessExpr(newScope, nameExpr.getNameAsString());
                     if (e instanceof NameExpr) {
-                        e.getParentNode().get().replace(nameExpr, prepend); // actually `e` was not composite, it was already the NameExpr node I was looking to replace.
+                        Optional<Node> parentNode = e.getParentNode();
+                        if (parentNode.isPresent()) {
+                            parentNode.get().replace(nameExpr, prepend); // actually `e` was not composite, it was already the NameExpr node I was looking to replace.
+                        } else {
+                            throw new IllegalStateException("Cannot find parent node for " + ((NameExpr) e).getNameAsString() + "!" );
+                        }
                     } else {
                         e.replace(nameExpr, prepend);
                     }
@@ -725,10 +742,6 @@ public class DrlxParseUtil {
         }
     }
 
-    public static boolean hasScope( MethodCallExpr mce, String scope ) {
-        return mce.getScope().map( s -> isNameExprWithName(s, scope)).orElse(false );
-    }
-
     public static boolean isNameExprWithName(Node expression, String name) {
         return expression instanceof NameExpr && (( NameExpr ) expression).getNameAsString().equals(name );
     }
@@ -777,11 +790,11 @@ public class DrlxParseUtil {
         }
     }
 
-    public static Node transformDrlNameExprToNameExpr(Node e) {
+    public static <T extends Node> T transformDrlNameExprToNameExpr(T e) {
         e.findAll(DrlNameExpr.class)
                 .forEach(n -> n.replace(new NameExpr(n.getName())));
         if(e instanceof DrlNameExpr) {
-            return new NameExpr(((DrlNameExpr) e).getName());
+            return (T) new NameExpr(((DrlNameExpr) e).getName());
         } else {
             return e;
         }
@@ -807,5 +820,13 @@ public class DrlxParseUtil {
             sanitized = e;
         }
         return sanitized;
+    }
+
+    public static String addCurlyBracesToBlock(String blockString) {
+        return String.format("{%s}", blockString);
+    }
+
+    public static String addSemicolon(String block) {
+        return block.endsWith(";") ? block : block + ";";
     }
 }

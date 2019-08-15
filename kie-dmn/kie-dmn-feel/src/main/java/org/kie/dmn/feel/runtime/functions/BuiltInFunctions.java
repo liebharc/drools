@@ -22,7 +22,7 @@ import org.kie.dmn.feel.runtime.FEELFunction;
 
 public class BuiltInFunctions {
 
-    protected final static FEELFunction[] FUNCTIONS = new FEELFunction[]{
+    protected static final FEELFunction[] FUNCTIONS = new FEELFunction[]{
             new DateFunction(),
             new TimeFunction(),
             new DateAndTimeFunction(),
@@ -47,8 +47,6 @@ public class BuiltInFunctions {
             new MaxFunction(),
             new SumFunction(),
             new MeanFunction(),
-            new AllFunction(),
-            new AnyFunction(),
             new SublistFunction(),
             new AppendFunction(),
             new ConcatenateFunction(),
@@ -66,7 +64,23 @@ public class BuiltInFunctions {
             new NotFunction(),
             new SortFunction(),
             new GetEntriesFunction(),
-            new GetValueFunction()
+            new GetValueFunction(),
+            
+            new AllFunction(),
+            new AnyFunction(),
+            AbsFunction.INSTANCE,
+            ModuloFunction.INSTANCE,
+            ProductFunction.INSTANCE,
+            SplitFunction.INSTANCE,
+            StddevFunction.INSTANCE,
+            ModeFunction.INSTANCE,
+            AbsFunction.INSTANCE,
+            SqrtFunction.INSTANCE,
+            LogFunction.INSTANCE,
+            ExpFunction.INSTANCE,
+            EvenFunction.INSTANCE,
+            OddFunction.INSTANCE,
+            MedianFunction.INSTANCE,
             };
 
     public static FEELFunction[] getFunctions() {
@@ -74,6 +88,9 @@ public class BuiltInFunctions {
     }
 
     public static <T extends FEELFunction> T getFunction( Class<T> functionClazz ) {
-        return (T) Stream.of( FUNCTIONS ).filter( f -> functionClazz.isAssignableFrom( f.getClass() ) ).findFirst().get();
+        return (T) Stream.of( FUNCTIONS )
+                .filter( f -> functionClazz.isAssignableFrom( f.getClass() ) )
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Cannot find function by class " + functionClazz.getCanonicalName() + "!"));
     }
 }

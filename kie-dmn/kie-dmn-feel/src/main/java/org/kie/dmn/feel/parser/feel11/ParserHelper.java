@@ -22,8 +22,8 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.OffsetTime;
-import java.time.Period;
 import java.time.ZonedDateTime;
+import java.time.chrono.ChronoPeriod;
 import java.util.List;
 import java.util.Map;
 import java.util.Stack;
@@ -37,10 +37,12 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import org.kie.dmn.api.feel.runtime.events.FEELEvent;
 import org.kie.dmn.feel.lang.CompositeType;
 import org.kie.dmn.feel.lang.Scope;
+import org.kie.dmn.feel.lang.SimpleType;
 import org.kie.dmn.feel.lang.Symbol;
 import org.kie.dmn.feel.lang.Type;
 import org.kie.dmn.feel.lang.impl.FEELEventListenersManager;
 import org.kie.dmn.feel.lang.impl.JavaBackedType;
+import org.kie.dmn.feel.lang.types.AliasFEELType;
 import org.kie.dmn.feel.lang.types.BuiltInType;
 import org.kie.dmn.feel.lang.types.ScopeImpl;
 import org.kie.dmn.feel.lang.types.SymbolTable;
@@ -61,8 +63,8 @@ public class ParserHelper {
     private Scope         currentScope = symbols.getGlobalScope();
     private Stack<String> currentName  = new Stack<>();
     private int dynamicResolution = 0;
-    private boolean featDMN12EnhancedForLoopEnabled = false; // DROOLS-2307 DMN enhanced for loop
-    private boolean featDMN12weekday = false; // DROOLS-2648 DMN v1.2 weekday on 'date', 'date and time'
+    private boolean featDMN12EnhancedForLoopEnabled = true; // DROOLS-2307 DMN enhanced for loop
+    private boolean featDMN12weekday = true; // DROOLS-2648 DMN v1.2 weekday on 'date', 'date and time'
 
     public ParserHelper() {
         this( null );
@@ -137,8 +139,15 @@ public class ParserHelper {
                     this.currentScope.define(new VariableSymbol( f.getKey(), f.getValue() ));
                 }
                 LOG.trace(".. PUSHED, scope name {} with symbols {}", this.currentName.peek(), this.currentScope.getSymbols());
-            } else if ( resolved != null && resolved.getType() instanceof BuiltInType ) {
-                BuiltInType resolvedBIType = (BuiltInType) resolved.getType();
+            } else if (resolved != null && resolved.getType() instanceof SimpleType) {
+                BuiltInType resolvedBIType = null;
+                if (resolved.getType() instanceof BuiltInType) {
+                    resolvedBIType = (BuiltInType) resolved.getType();
+                } else if (resolved.getType() instanceof AliasFEELType) {
+                    resolvedBIType = ((AliasFEELType) resolved.getType()).getBuiltInType();
+                } else {
+                    throw new UnsupportedOperationException("Unsupported BIType " + resolved.getType() + "!");
+                }
                 pushName(name);
                 pushScope(resolvedBIType);
                 switch (resolvedBIType) {
@@ -299,7 +308,7 @@ public class ParserHelper {
             return BuiltInType.TIME;
         } else if( ZonedDateTime.class.isAssignableFrom(clazz) || OffsetDateTime.class.isAssignableFrom(clazz) || LocalDateTime.class.isAssignableFrom(clazz) ) {
             return BuiltInType.DATE_TIME;
-        } else if( Duration.class.isAssignableFrom(clazz) || Period.class.isAssignableFrom(clazz) ) {
+        } else if (Duration.class.isAssignableFrom(clazz) || ChronoPeriod.class.isAssignableFrom(clazz)) {
             return BuiltInType.DURATION;
         } else if( Boolean.class.isAssignableFrom(clazz) ) {
             return BuiltInType.BOOLEAN;

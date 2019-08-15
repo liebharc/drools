@@ -21,7 +21,7 @@
   <parent>
     <artifactId>drools</artifactId>
     <groupId>org.drools</groupId>
-    <version>7.20.0-SNAPSHOT</version>
+    <version>7.26.0-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
 
@@ -31,7 +31,8 @@
   <modules>
     <module>drools-canonical-model</module>
     <module>drools-model-compiler</module>
-    <module>drools-constraint-parser</module>
+    <module>drools-mvel-parser</module>
+    <module>drools-mvel-compiler</module>
   </modules>
 
 

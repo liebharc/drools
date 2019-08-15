@@ -16,7 +16,6 @@
 
 package org.kie.dmn.validation.dtanalysis;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -30,7 +29,6 @@ import java.util.stream.Stream;
 import javax.xml.namespace.QName;
 
 import org.kie.dmn.api.core.DMNModel;
-import org.kie.dmn.api.core.ast.DecisionNode;
 import org.kie.dmn.core.compiler.DMNCompilerImpl;
 import org.kie.dmn.core.compiler.DMNProfile;
 import org.kie.dmn.core.impl.DMNModelImpl;
@@ -39,30 +37,25 @@ import org.kie.dmn.core.util.MsgUtil;
 import org.kie.dmn.feel.codegen.feel11.ProcessedExpression;
 import org.kie.dmn.feel.codegen.feel11.ProcessedUnaryTest;
 import org.kie.dmn.feel.lang.ast.BaseNode;
-import org.kie.dmn.feel.lang.ast.BooleanNode;
 import org.kie.dmn.feel.lang.ast.DashNode;
-import org.kie.dmn.feel.lang.ast.NumberNode;
+import org.kie.dmn.feel.lang.ast.NullNode;
 import org.kie.dmn.feel.lang.ast.RangeNode;
 import org.kie.dmn.feel.lang.ast.RangeNode.IntervalBoundary;
-import org.kie.dmn.feel.lang.ast.SignedUnaryNode;
-import org.kie.dmn.feel.lang.ast.SignedUnaryNode.Sign;
-import org.kie.dmn.feel.lang.ast.StringNode;
 import org.kie.dmn.feel.lang.ast.UnaryTestListNode;
 import org.kie.dmn.feel.lang.ast.UnaryTestNode;
 import org.kie.dmn.feel.lang.ast.UnaryTestNode.UnaryOperator;
+import org.kie.dmn.feel.lang.ast.Visitor;
 import org.kie.dmn.feel.lang.impl.InterpretedExecutableExpression;
 import org.kie.dmn.feel.lang.impl.UnaryTestInterpretedExecutableExpression;
-import org.kie.dmn.feel.runtime.Range;
 import org.kie.dmn.feel.runtime.Range.RangeBoundary;
-import org.kie.dmn.feel.util.EvalHelper;
 import org.kie.dmn.model.api.DecisionRule;
 import org.kie.dmn.model.api.DecisionTable;
-import org.kie.dmn.model.api.Expression;
 import org.kie.dmn.model.api.InputClause;
 import org.kie.dmn.model.api.ItemDefinition;
 import org.kie.dmn.model.api.LiteralExpression;
 import org.kie.dmn.model.api.OutputClause;
 import org.kie.dmn.model.api.UnaryTests;
+import org.kie.dmn.validation.dtanalysis.DMNDTAnalyserValueFromNodeVisitor.DMNDTAnalyserOutputClauseVisitor;
 import org.kie.dmn.validation.dtanalysis.model.Bound;
 import org.kie.dmn.validation.dtanalysis.model.BoundValueComparator;
 import org.kie.dmn.validation.dtanalysis.model.DDTAInputClause;
@@ -81,33 +74,34 @@ public class DMNDTAnalyser {
 
     private static final Logger LOG = LoggerFactory.getLogger(DMNDTAnalyser.class);
     private final org.kie.dmn.feel.FEEL FEEL;
+    private final DMNDTAnalyserValueFromNodeVisitor valueFromNodeVisitor;
+    private final DMNDTAnalyserOutputClauseVisitor outputClauseVisitor;
 
     public DMNDTAnalyser(List<DMNProfile> dmnProfiles) {
         FEEL = org.kie.dmn.feel.FEEL.newInstance((List) dmnProfiles);
+        valueFromNodeVisitor = new DMNDTAnalyserValueFromNodeVisitor((List) dmnProfiles);
+        outputClauseVisitor = new DMNDTAnalyserOutputClauseVisitor((List) dmnProfiles);
     }
 
     public List<DTAnalysis> analyse(DMNModel model) {
         List<DTAnalysis> results = new ArrayList<>();
 
-        for (DecisionNode dn : model.getDecisions()) {
-            Expression expression = dn.getDecision().getExpression();
-            if (expression instanceof DecisionTable) {
-                DecisionTable decisionTable = (DecisionTable) expression;
-                try {
-                    DTAnalysis result = dmnDTAnalysis(model, dn, decisionTable);
-                    results.add(result);
-                } catch (Throwable t) {
-                    LOG.debug("Skipped dmnDTAnalysis for table: " + decisionTable.getId(), t);
-                    DTAnalysis result = DTAnalysis.ofError(decisionTable, t);
-                    results.add(result);
-                }
+        List<? extends DecisionTable> decisionTables = model.getDefinitions().findAllChildren(DecisionTable.class);
+        for (DecisionTable dt : decisionTables) {
+            try {
+                DTAnalysis result = dmnDTAnalysis(model, dt);
+                results.add(result);
+            } catch (Throwable t) {
+                LOG.debug("Skipped dmnDTAnalysis for table: " + dt.getId(), t);
+                DTAnalysis result = DTAnalysis.ofError(dt, t);
+                results.add(result);
             }
         }
 
         return results;
     }
 
-    private DTAnalysis dmnDTAnalysis(DMNModel model, DecisionNode dn, DecisionTable dt) {
+    private DTAnalysis dmnDTAnalysis(DMNModel model, DecisionTable dt) {
         DDTATable ddtaTable = new DDTATable();
         compileTableInputClauses(model, dt, ddtaTable);
         compileTableOutputClauses(model, dt, ddtaTable);
@@ -120,8 +114,18 @@ public class DMNDTAnalyser {
         findOverlaps(analysis, ddtaTable, 0, new Interval[ddtaTable.inputCols()], Collections.emptyList());
         LOG.debug("computeMaskedRules");
         analysis.computeMaskedRules();
+        LOG.debug("computeMisleadingRules");
+        analysis.computeMisleadingRules();
         LOG.debug("normalize");
         analysis.normalize();
+        LOG.debug("computeSubsumptions");
+        analysis.computeSubsumptions();
+        LOG.debug("computeContractions");
+        analysis.computeContractions();
+        LOG.debug("compute1stNFViolations");
+        analysis.compute1stNFViolations();
+        LOG.debug("compute2ndNFViolations");
+        analysis.compute2ndNFViolations();
         return analysis;
     }
 
@@ -154,7 +158,7 @@ public class DMNDTAnalyser {
 
                 DDTAInputClause ddtaInputClause = ddtaTable.getInputs().get(jColIdx);
 
-                DDTAInputEntry ddtaInputEntry = new DDTAInputEntry(utln.getElements(), toIntervals(utln.getElements(), ddtaInputClause.getDomainMinMax(), ddtaInputClause.getDiscreteValues(), jRowIdx + 1, jColIdx + 1));
+                DDTAInputEntry ddtaInputEntry = new DDTAInputEntry(utln.getElements(), toIntervals(utln.getElements(), utln.isNegated(), ddtaInputClause.getDomainMinMax(), ddtaInputClause.getDiscreteValues(), jRowIdx + 1, jColIdx + 1));
                 for (Interval interval : ddtaInputEntry.getIntervals()) {
                     Interval domainMinMax = ddtaTable.getInputs().get(jColIdx).getDomainMinMax();
                     if (!domainMinMax.includes(interval)) {
@@ -168,50 +172,33 @@ public class DMNDTAnalyser {
                 ProcessedExpression compile = (ProcessedExpression) FEEL.compile(oe.getText(), FEEL.newCompilerContext());
                 InterpretedExecutableExpression interpreted = compile.getInterpreted();
                 BaseNode outputEntryNode = (BaseNode) interpreted.getASTNode();
-                Comparable<?> value = valueFromNode(outputEntryNode);
+                Comparable<?> value = valueFromNode(outputEntryNode, outputClauseVisitor);
                 ddtaRule.getOutputEntry().add(value);
                 jColIdx++;
             }
-            ddtaTable.getRule().add(ddtaRule);
+            ddtaTable.addRule(ddtaRule);
         }
     }
+
 
     private void compileTableInputClauses(DMNModel model, DecisionTable dt, DDTATable ddtaTable) {
         for (int jColIdx = 0; jColIdx < dt.getInput().size(); jColIdx++) {
             InputClause ie = dt.getInput().get(jColIdx);
             Interval infDomain = new Interval(RangeBoundary.CLOSED, Interval.NEG_INF, Interval.POS_INF, RangeBoundary.CLOSED, 0, jColIdx + 1);
-            String allowedValues = null;
+            String allowedValues;
             if (ie.getInputValues() != null) {
                 allowedValues = ie.getInputValues().getText();
             } else {
                 QName typeRef = DMNCompilerImpl.getNamespaceAndName(dt, ((DMNModelImpl) model).getImportAliasesForNS(), ie.getInputExpression().getTypeRef(), model.getNamespace());
-                if (typeRef.getNamespaceURI().equals(model.getNamespace())) {
-                    Optional<ItemDefinition> opt = model.getDefinitions().getItemDefinition().stream().filter(id -> id.getName().equals(typeRef.getLocalPart())).findFirst();
-                    if (opt.isPresent()) {
-                        ItemDefinition id = opt.get();
-                        if (id.getAllowedValues() != null) {
-                            allowedValues = id.getAllowedValues().getText();
-                        }
-                    } else {
-                        throw new IllegalStateException("Unable to locate typeRef " + typeRef + " to determine domain.");
-                    }
-                } else if (typeRef.getNamespaceURI().equals(model.getDefinitions().getURIFEEL()) && typeRef.getLocalPart().equals("boolean")) {
-                    allowedValues = "false, true";
-                }
+                allowedValues = findAllowedValues(model, typeRef);
             }
             if (allowedValues != null) {
                 ProcessedUnaryTest compileUnaryTests = (ProcessedUnaryTest) FEEL.compileUnaryTests(allowedValues, FEEL.newCompilerContext());
                 UnaryTestInterpretedExecutableExpression interpreted = compileUnaryTests.getInterpreted();
                 UnaryTestListNode utln = (UnaryTestListNode) interpreted.getASTNode();
                 if (utln.getElements().size() != 1) {
-                    if (!utln.getElements().stream().allMatch(e -> e instanceof UnaryTestNode && ((UnaryTestNode) e).getOperator() == UnaryOperator.EQ)) {
-                        throw new DMNDTAnalysisException("Multiple constraint on column: " + utln, dt);
-                    }
-                    List<Comparable<?>> discreteValues = new ArrayList<>();
-                    for (BaseNode e : utln.getElements()) {
-                        Comparable<?> v = valueFromNode(((UnaryTestNode) e).getValue());
-                        discreteValues.add(v);
-                    }
+                    verifyUnaryTestsAllEQ(utln, dt);
+                    List<Comparable<?>> discreteValues = getDiscreteValues(utln);
                     Collections.sort((List) discreteValues);
                     Interval discreteDomainMinMax = new Interval(RangeBoundary.CLOSED, discreteValues.get(0), discreteValues.get(discreteValues.size() - 1), RangeBoundary.CLOSED, 0, jColIdx + 1);
                     DDTAInputClause ic = new DDTAInputClause(discreteDomainMinMax, discreteValues);
@@ -242,19 +229,7 @@ public class DMNDTAnalyser {
                 QName outputTypeRef = (oe.getTypeRef() == null && dt.getOutput().size() == 1) ? dt.getTypeRef() : oe.getTypeRef();
                 if (outputTypeRef != null) {
                     QName typeRef = DMNCompilerImpl.getNamespaceAndName(dt, ((DMNModelImpl) model).getImportAliasesForNS(), outputTypeRef, model.getNamespace());
-                    if (typeRef.getNamespaceURI().equals(model.getNamespace())) {
-                        Optional<ItemDefinition> opt = model.getDefinitions().getItemDefinition().stream().filter(id -> id.getName().equals(typeRef.getLocalPart())).findFirst();
-                        if (opt.isPresent()) {
-                            ItemDefinition id = opt.get();
-                            if (id.getAllowedValues() != null) {
-                                allowedValues = id.getAllowedValues().getText();
-                            }
-                        } else {
-                            throw new IllegalStateException("Unable to locate typeRef " + typeRef + " to determine domain.");
-                        }
-                    } else if (typeRef.getNamespaceURI().equals(model.getDefinitions().getURIFEEL()) && typeRef.getLocalPart().equals("boolean")) {
-                        allowedValues = "false, true";
-                    }
+                    allowedValues = findAllowedValues(model, typeRef);
                 }
             }
             if (allowedValues != null) {
@@ -262,17 +237,12 @@ public class DMNDTAnalyser {
                 UnaryTestInterpretedExecutableExpression interpreted = compileUnaryTests.getInterpreted();
                 UnaryTestListNode utln = (UnaryTestListNode) interpreted.getASTNode();
                 if (utln.getElements().size() != 1) {
-                    if (!utln.getElements().stream().allMatch(e -> e instanceof UnaryTestNode && ((UnaryTestNode) e).getOperator() == UnaryOperator.EQ)) {
-                        throw new DMNDTAnalysisException("Multiple constraint on column: " + utln, dt);
-                    }
-                    List<Comparable<?>> discreteValues = new ArrayList<>();
-                    for (BaseNode e : utln.getElements()) {
-                        Comparable<?> v = valueFromNode(((UnaryTestNode) e).getValue());
-                        discreteValues.add(v);
-                    }
+                    verifyUnaryTestsAllEQ(utln, dt);
+                    List<Comparable<?>> discreteValues = getDiscreteValues(utln);
+                    List<Comparable<?>> outputOrder = new ArrayList<>(discreteValues);
                     Collections.sort((List) discreteValues);
                     Interval discreteDomainMinMax = new Interval(RangeBoundary.CLOSED, discreteValues.get(0), discreteValues.get(discreteValues.size() - 1), RangeBoundary.CLOSED, 0, jColIdx + 1);
-                    DDTAOutputClause ic = new DDTAOutputClause(discreteDomainMinMax, discreteValues);
+                    DDTAOutputClause ic = new DDTAOutputClause(discreteDomainMinMax, discreteValues, outputOrder);
                     ddtaTable.getOutputs().add(ic);
                 } else if (utln.getElements().size() == 1) {
                     UnaryTestNode utn0 = (UnaryTestNode) utln.getElements().get(0);
@@ -289,27 +259,57 @@ public class DMNDTAnalyser {
         }
     }
 
+    private void verifyUnaryTestsAllEQ(UnaryTestListNode utln, DecisionTable dt) {
+        if (!utln.getElements().stream().allMatch(e -> e instanceof UnaryTestNode && ((UnaryTestNode) e).getOperator() == UnaryOperator.EQ)) {
+            throw new DMNDTAnalysisException("Multiple constraint on column: " + utln, dt);
+        }
+    }
+
+    /**
+     * Transform a UnaryTestListNode into a List of discrete values for input/output clause enumeration
+     */
+    private List<Comparable<?>> getDiscreteValues(UnaryTestListNode utln) {
+        List<Comparable<?>> discreteValues = new ArrayList<>();
+        for (BaseNode e : utln.getElements()) {
+            BaseNode value = ((UnaryTestNode) e).getValue();
+            if (!(value instanceof NullNode)) { // to retrieve value from input/output clause enumeration, null is ignored.
+                Comparable<?> v = valueFromNode(value);
+                discreteValues.add(v);
+            }
+        }
+        return discreteValues;
+    }
+
+    private String findAllowedValues(DMNModel model, QName typeRef) {
+        if (typeRef.getNamespaceURI().equals(model.getNamespace())) {
+            Optional<ItemDefinition> opt = model.getDefinitions().getItemDefinition().stream().filter(id -> id.getName().equals(typeRef.getLocalPart())).findFirst();
+            if (opt.isPresent()) {
+                ItemDefinition id = opt.get();
+                if (id.getAllowedValues() != null) {
+                    return id.getAllowedValues().getText();
+                }
+            } else {
+                throw new IllegalStateException("Unable to locate typeRef " + typeRef + " to determine domain.");
+            }
+        } else if (typeRef.getNamespaceURI().equals(model.getDefinitions().getURIFEEL()) && typeRef.getLocalPart().equals("boolean")) {
+            return "false, true";
+        }
+        return null;
+    }
+
     private void findOverlaps(DTAnalysis analysis, DDTATable ddtaTable, int jColIdx, Interval[] currentIntervals, Collection<Integer> activeRules) {
         LOG.debug("findOverlaps jColIdx {}, currentIntervals {}, activeRules {}", jColIdx, currentIntervals, activeRules);
         if (jColIdx < ddtaTable.inputCols()) {
-            List<Interval> intervals = ddtaTable.projectOnColumnIdx(jColIdx);
-            if (!activeRules.isEmpty()) {
-                intervals = intervals.stream().filter(i -> activeRules.contains(i.getRule())).collect(Collectors.toList());
-            }
-            LOG.debug("intervals {}", intervals);
-            List<Bound> bounds = intervals.stream().flatMap(i -> Stream.of(i.getLowerBound(), i.getUpperBound())).collect(Collectors.toList());
-            Collections.sort(bounds);
-            LOG.debug("bounds (sorted) {}", bounds);
-
+            List<Bound> bounds = findBoundsSorted(ddtaTable, jColIdx, activeRules);
             List<Interval> activeIntervals = new ArrayList<>();
             Bound<?> lastBound = bounds.get(0);
             for (Bound<?> currentBound : bounds) {
                 LOG.debug("lastBound {} currentBound {}      activeIntervals {} == rules {}", lastBound, currentBound, activeIntervals, activeIntervalsToRules(activeIntervals));
-                if (activeIntervals.size() > 1 && canBeNewCurrIntervalForOverlaps(lastBound, currentBound)) {
-                    Interval analysisInterval = new Interval(lastBound.isUpperBound() ? invertBoundary(lastBound.getBoundaryType()) : lastBound.getBoundaryType(),
+                if (activeIntervals.size() > 1 && canBeNewCurrInterval(lastBound, currentBound)) {
+                    Interval analysisInterval = new Interval(lastBound.isUpperBound() ? Interval.invertBoundary(lastBound.getBoundaryType()) : lastBound.getBoundaryType(),
                                                              lastBound.getValue(),
                                                              currentBound.getValue(),
-                                                             currentBound.isLowerBound() ? invertBoundary(currentBound.getBoundaryType()) : currentBound.getBoundaryType(),
+                                                             currentBound.isLowerBound() ? Interval.invertBoundary(currentBound.getBoundaryType()) : currentBound.getBoundaryType(),
                                                              0, 0);
                     currentIntervals[jColIdx] = analysisInterval;
                     findOverlaps(analysis, ddtaTable, jColIdx + 1, currentIntervals, activeIntervalsToRules(activeIntervals));
@@ -334,42 +334,17 @@ public class DMNDTAnalyser {
         LOG.debug(".");
     }
 
-    private static boolean canBeNewCurrIntervalForOverlaps(Bound<?> lastBound, Bound<?> currentBound) {
-        int vCompare = BoundValueComparator.compareValueDispatchingToInf(lastBound, currentBound);
-        if (vCompare != 0) {
-            return true;
-        } else {
-            if (lastBound.getBoundaryType() == RangeBoundary.CLOSED && currentBound.getBoundaryType() == RangeBoundary.CLOSED) {
-                return true; // by Bound order, if they have same value x, interested in only the case [x x]
-            } else {
-                return false;
-            }
-        }
-    }
-
     private static void findGaps(DTAnalysis analysis, DDTATable ddtaTable, int jColIdx, Interval[] currentIntervals, Collection<Integer> activeRules) {
         LOG.debug("findGaps jColIdx {}, currentIntervals {}, activeRules {}", jColIdx, currentIntervals, activeRules);
         if (jColIdx < ddtaTable.inputCols()) {
-            List<Interval> intervals = ddtaTable.projectOnColumnIdx(jColIdx);
-            if (!activeRules.isEmpty()) {
-                intervals = intervals.stream().filter(i -> activeRules.contains(i.getRule())).collect(Collectors.toList());
-            }
-            LOG.debug("intervals {}", intervals);
-            List<Bound> bounds = intervals.stream().flatMap(i -> Stream.of(i.getLowerBound(), i.getUpperBound())).collect(Collectors.toList());
-            Collections.sort(bounds);
-            LOG.debug("bounds (sorted) {}", bounds);
-
+            findBoundsSorted(ddtaTable, jColIdx, activeRules);
+            List<Bound> bounds = findBoundsSorted(ddtaTable, jColIdx, activeRules);
             Interval domainRange = ddtaTable.getInputs().get(jColIdx).getDomainMinMax();
 
             // from domain start to the 1st bound
             if (!domainRange.getLowerBound().equals(bounds.get(0))) {
-                Interval missingInterval = lastDimensionUncoveredInterval(domainRange.getLowerBound(), bounds.get(0), domainRange);
-                currentIntervals[jColIdx] = missingInterval;
-                List<Interval> edges = new ArrayList<>();
-                for (int p = 0; p <= jColIdx; p++) {
-                    edges.add(currentIntervals[p]);
-                }
-                Hyperrectangle gap = new Hyperrectangle(ddtaTable.inputCols(), edges);
+                currentIntervals[jColIdx] = lastDimensionUncoveredInterval(domainRange.getLowerBound(), bounds.get(0), domainRange);
+                Hyperrectangle gap = new Hyperrectangle(ddtaTable.inputCols(), buildEdgesForHyperrectangleFromIntervals(currentIntervals, jColIdx));
                 analysis.addGap(gap);
                 LOG.debug("STARTLEFT GAP DETECTED {}", gap);
             }
@@ -379,22 +354,16 @@ public class DMNDTAnalyser {
             for (Bound<?> currentBound : bounds) {
                 LOG.debug("lastBound {} currentBound {}      activeIntervals {} == rules {}", lastBound, currentBound, activeIntervals, activeIntervalsToRules(activeIntervals));
                 if (activeIntervals.isEmpty() && lastBound != null && !Bound.adOrOver(lastBound, currentBound)) {
-                    Interval missingInterval = lastDimensionUncoveredInterval(lastBound, currentBound, domainRange);
-                    currentIntervals[jColIdx] = missingInterval;
-
-                    List<Interval> edges = new ArrayList<>();
-                    for (int p = 0; p <= jColIdx; p++) {
-                        edges.add(currentIntervals[p]);
-                    }
-                    Hyperrectangle gap = new Hyperrectangle(ddtaTable.inputCols(), edges);
+                    currentIntervals[jColIdx] = lastDimensionUncoveredInterval(lastBound, currentBound, domainRange);
+                    Hyperrectangle gap = new Hyperrectangle(ddtaTable.inputCols(), buildEdgesForHyperrectangleFromIntervals(currentIntervals, jColIdx));
                     LOG.debug("GAP DETECTED {}", gap);
                     analysis.addGap(gap);
                 }
                 if (!activeIntervals.isEmpty() && canBeNewCurrInterval(lastBound, currentBound)) {
-                    Interval missingInterval = new Interval(lastBound.isUpperBound() ? invertBoundary(lastBound.getBoundaryType()) : lastBound.getBoundaryType(),
+                    Interval missingInterval = new Interval(lastBound.isUpperBound() ? Interval.invertBoundary(lastBound.getBoundaryType()) : lastBound.getBoundaryType(),
                                                             lastBound.getValue(),
                                                             currentBound.getValue(),
-                                                            currentBound.isLowerBound() ? invertBoundary(currentBound.getBoundaryType()) : currentBound.getBoundaryType(),
+                                                            currentBound.isLowerBound() ? Interval.invertBoundary(currentBound.getBoundaryType()) : currentBound.getBoundaryType(),
                                                             0, 0);
                     currentIntervals[jColIdx] = missingInterval;
                     findGaps(analysis, ddtaTable, jColIdx + 1, currentIntervals, activeIntervalsToRules(activeIntervals));
@@ -408,19 +377,34 @@ public class DMNDTAnalyser {
             }
             // from last Nth bound, to domain end.
             if (!lastBound.equals(domainRange.getUpperBound())) {
-                Interval missingInterval = lastDimensionUncoveredInterval(lastBound, domainRange.getUpperBound(), domainRange);
-                currentIntervals[jColIdx] = missingInterval;
-                List<Interval> edges = new ArrayList<>();
-                for (int p = 0; p <= jColIdx; p++) {
-                    edges.add(currentIntervals[p]);
-                }
-                Hyperrectangle gap = new Hyperrectangle(ddtaTable.inputCols(), edges);
+                currentIntervals[jColIdx] = lastDimensionUncoveredInterval(lastBound, domainRange.getUpperBound(), domainRange);
+                Hyperrectangle gap = new Hyperrectangle(ddtaTable.inputCols(), buildEdgesForHyperrectangleFromIntervals(currentIntervals, jColIdx));
                 LOG.debug("ENDRIGHT GAP DETECTED {}", gap);
                 analysis.addGap(gap);
             }
             currentIntervals[jColIdx] = null; // facilitate debugging.
         }
         LOG.debug(".");
+    }
+
+    private static List<Bound> findBoundsSorted(DDTATable ddtaTable, int jColIdx, Collection<Integer> activeRules) {
+        List<Interval> intervals = ddtaTable.projectOnColumnIdx(jColIdx);
+        if (!activeRules.isEmpty()) {
+            intervals = intervals.stream().filter(i -> activeRules.contains(i.getRule())).collect(Collectors.toList());
+        }
+        LOG.debug("intervals {}", intervals);
+        List<Bound> bounds = intervals.stream().flatMap(i -> Stream.of(i.getLowerBound(), i.getUpperBound())).collect(Collectors.toList());
+        Collections.sort(bounds);
+        LOG.debug("bounds (sorted) {}", bounds);
+        return bounds;
+    }
+
+    private static List<Interval> buildEdgesForHyperrectangleFromIntervals(Interval[] currentIntervals, int intervalsIndex) {
+        List<Interval> edges = new ArrayList<>();
+        for (int p = 0; p <= intervalsIndex; p++) {
+            edges.add(currentIntervals[p]);
+        }
+        return edges;
     }
 
     private static Collection<Integer> activeIntervalsToRules(List<Interval> activeIntervals) {
@@ -449,27 +433,18 @@ public class DMNDTAnalyser {
     private static Interval lastDimensionUncoveredInterval(Bound<?> l, Bound<?> r, Interval domain) {
         boolean isLmin = l.isLowerBound() && l.equals(domain.getLowerBound());
         boolean isRmax = r.isUpperBound() && r.equals(domain.getUpperBound());
-        return new Interval(isLmin ? domain.getLowerBound().getBoundaryType() : invertBoundary(l.getBoundaryType()),
+        return new Interval(isLmin ? domain.getLowerBound().getBoundaryType() : Interval.invertBoundary(l.getBoundaryType()),
                             l.getValue(),
                             r.getValue(),
-                            isRmax ? domain.getUpperBound().getBoundaryType() : invertBoundary(r.getBoundaryType()),
+                            isRmax ? domain.getUpperBound().getBoundaryType() : Interval.invertBoundary(r.getBoundaryType()),
                             0, 0);
     }
 
-    private static Range.RangeBoundary invertBoundary(Range.RangeBoundary b) {
-        if (b == RangeBoundary.OPEN) {
-            return RangeBoundary.CLOSED;
-        } else if (b == RangeBoundary.CLOSED) {
-            return RangeBoundary.OPEN;
-        } else {
-            throw new IllegalStateException("invertBoundary for: " + b);
-        }
-    }
-
-    private static List<Interval> toIntervals(List<BaseNode> elements, Interval minMax, List discreteValues, int rule, int col) {
+    private List<Interval> toIntervals(List<BaseNode> elements, boolean isNegated, Interval minMax, List discreteValues, int rule, int col) {
         List<Interval> results = new ArrayList<>();
         if (discreteValues != null && !discreteValues.isEmpty() && areAllEQUnaryTest(elements) && elements.size() > 1) {
-            BitSet hitValues = new BitSet(discreteValues.size());
+            int bitsetLogicalSize = discreteValues.size(); // JDK BitSet size will always be larger.
+            BitSet hitValues = new BitSet(bitsetLogicalSize);
             for (BaseNode n : elements) {
                 Comparable<?> thisValue = valueFromNode(((UnaryTestNode) n).getValue());
                 int indexOf = discreteValues.indexOf(thisValue);
@@ -477,6 +452,9 @@ public class DMNDTAnalyser {
                     throw new IllegalStateException("Unable to determine discreteValue index for: " + n);
                 }
                 hitValues.set(indexOf);
+            }
+            if (isNegated) {
+                hitValues.flip(0, bitsetLogicalSize);
             }
             int lowerBoundIdx = -1;
             int upperBoundIdx = -1;
@@ -491,28 +469,14 @@ public class DMNDTAnalyser {
                     }
                 } else {
                     if (lowerBoundIdx >= 0 && upperBoundIdx >=0) {
-                        Comparable<?> lowValue = (Comparable<?>) discreteValues.get(lowerBoundIdx);
-                        Comparable<?> highValue = (Comparable<?>) discreteValues.get(upperBoundIdx);
-                        Interval newInterval = null;
-                        if (upperBoundIdx + 1 == discreteValues.size()) {
-                            newInterval = new Interval(RangeBoundary.CLOSED, lowValue, highValue, RangeBoundary.CLOSED, rule, col);
-                        } else {
-                            newInterval = new Interval(RangeBoundary.CLOSED, lowValue, (Comparable<?>) discreteValues.get(upperBoundIdx + 1), RangeBoundary.OPEN, rule, col);
-                        }
-                        results.add(newInterval);
+                        results.add(createIntervalOfRule(discreteValues, rule, col, lowerBoundIdx, upperBoundIdx));
+                        lowerBoundIdx = -1;
+                        upperBoundIdx = -1;
                     }
                 }
             }
             if (lowerBoundIdx >= 0 && upperBoundIdx >= 0) {
-                Comparable<?> lowValue = (Comparable<?>) discreteValues.get(lowerBoundIdx);
-                Comparable<?> highValue = (Comparable<?>) discreteValues.get(upperBoundIdx);
-                Interval newInterval = null;
-                if (upperBoundIdx + 1 == discreteValues.size()) {
-                    newInterval = new Interval(RangeBoundary.CLOSED, lowValue, highValue, RangeBoundary.CLOSED, rule, col);
-                } else {
-                    newInterval = new Interval(RangeBoundary.CLOSED, lowValue, (Comparable<?>) discreteValues.get(upperBoundIdx + 1), RangeBoundary.OPEN, rule, col);
-                }
-                results.add(newInterval);
+                results.add(createIntervalOfRule(discreteValues, rule, col, lowerBoundIdx, upperBoundIdx));
             }
         } else {
             for (BaseNode n : elements) {
@@ -521,10 +485,25 @@ public class DMNDTAnalyser {
                     continue;
                 }
                 UnaryTestNode ut = (UnaryTestNode) n;
-                results.add(utnToInterval(ut, minMax, discreteValues, rule, col));
+                Interval interval = utnToInterval(ut, minMax, discreteValues, rule, col);
+                if (isNegated) {
+                    results.addAll(Interval.invertOverDomain(interval, minMax));
+                } else {
+                    results.add(interval);
+                }
             }
         }
         return results;
+    }
+
+    private static Interval createIntervalOfRule(List discreteValues, int rule, int col, int lowerBoundIdx, int upperBoundIdx) {
+        Comparable<?> lowValue = (Comparable<?>) discreteValues.get(lowerBoundIdx);
+        Comparable<?> highValue = (Comparable<?>) discreteValues.get(upperBoundIdx);
+        if (upperBoundIdx + 1 == discreteValues.size()) {
+            return new Interval(RangeBoundary.CLOSED, lowValue, highValue, RangeBoundary.CLOSED, rule, col);
+        } else {
+            return new Interval(RangeBoundary.CLOSED, lowValue, (Comparable<?>) discreteValues.get(upperBoundIdx + 1), RangeBoundary.OPEN, rule, col);
+        }
     }
 
     private static boolean areAllEQUnaryTest(List<BaseNode> elements) {
@@ -539,7 +518,7 @@ public class DMNDTAnalyser {
         }
     }
 
-    private static Interval utnToInterval(UnaryTestNode ut, Interval minMax, List discreteValues, int rule, int col) {
+    private Interval utnToInterval(UnaryTestNode ut, Interval minMax, List discreteValues, int rule, int col) {
         if (ut.getOperator() == UnaryOperator.EQ) {
             if (discreteValues == null || discreteValues.isEmpty()) {
                 return new Interval(RangeBoundary.CLOSED, valueFromNode(ut.getValue()), valueFromNode(ut.getValue()), RangeBoundary.CLOSED, rule, col);
@@ -575,32 +554,11 @@ public class DMNDTAnalyser {
         }
     }
 
-    private static Comparable<?> valueFromNode(BaseNode node) {
-        if (node instanceof NumberNode) {
-            NumberNode numberNode = (NumberNode) node;
-            return numberNode.getValue(); 
-        } else if (node instanceof BooleanNode) {
-            BooleanNode booleanNode = (BooleanNode) node;
-            return booleanNode.getValue();
-        } else if (node instanceof StringNode) {
-            StringNode stringNode = (StringNode) node;
-            return EvalHelper.unescapeString(stringNode.getText());
-        } else if (node instanceof SignedUnaryNode) {
-            SignedUnaryNode signedUnaryNode = (SignedUnaryNode) node;
-            BaseNode signedExpr = signedUnaryNode.getExpression();
-            if (signedExpr instanceof NumberNode) {
-                BigDecimal valueFromNode = (BigDecimal) valueFromNode(signedExpr);
-                if (signedUnaryNode.getSign() == Sign.NEGATIVE) {
-                    return BigDecimal.valueOf(-1).multiply(valueFromNode);
-                } else {
-                    return valueFromNode;
-                }
+    private Comparable<?> valueFromNode(BaseNode node, Visitor<Comparable<?>> visitor) {
+        return node.accept(visitor);
+    }
 
-            } else {
-                throw new UnsupportedOperationException("valueFromNode: " + node);
-            }
-        } else {
-            throw new UnsupportedOperationException("valueFromNode: " + node);
-        }
+    private Comparable<?> valueFromNode(BaseNode node) {
+        return valueFromNode(node, valueFromNodeVisitor);
     }
 }

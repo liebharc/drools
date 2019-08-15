@@ -242,12 +242,16 @@ public class ProtobufInputMarshaller {
                              ((WorkingMemoryEntryPoint) wmep).getObjectStore(),
                              pctxs );
 
+            context.wm.getFactHandleFactory().doRecycleIds( context.handles.keySet() );
+
             context.filter.fireRNEAs( context.wm );
 
             readTruthMaintenanceSystem( context,
                                         wmep,
                                         _ep,
                                         pctxs );
+
+            context.wm.getFactHandleFactory().stopRecycleIds();
         }
 
         cleanReaderContexts( pctxs );
@@ -332,7 +336,7 @@ public class ProtobufInputMarshaller {
     private static void readInitialFactHandle(MarshallerReaderContext context,
                                               RuleData _session,
                                               List<PropagationContext> pctxs) {
-        int ifhId = context.wm.getInitialFactHandle().getId();
+        long ifhId = context.wm.getInitialFactHandle().getId();
         context.handles.put( ifhId,
                              context.wm.getInitialFactHandle() );
 
@@ -453,7 +457,7 @@ public class ProtobufInputMarshaller {
                                             InternalFactHandle handle,
                                             List<PropagationContext> pctxs) {
         Object object = handle.getObject();
-        WorkingMemoryEntryPoint ep = handle.getEntryPoint();
+        WorkingMemoryEntryPoint ep = handle.getEntryPoint(wm);
         ObjectTypeConf typeConf = ep.getObjectTypeConfigurationRegistry().getObjectTypeConf( ep.getEntryPoint(), object );
 
         PropagationContextFactory pctxFactory = wm.getKnowledgeBase().getConfiguration().getComponentFactory().getPropagationContextFactory();
@@ -558,7 +562,7 @@ public class ProtobufInputMarshaller {
             InternalFactHandle handle = (InternalFactHandle) context.handles.get( _key.getHandleId() );
 
             // ObjectTypeConf state is not marshalled, so it needs to be re-determined
-            ObjectTypeConf typeConf = context.wm.getObjectTypeConfigurationRegistry().getObjectTypeConf( ((NamedEntryPoint) handle.getEntryPoint()).getEntryPoint(),
+            ObjectTypeConf typeConf = context.wm.getObjectTypeConfigurationRegistry().getObjectTypeConf( handle.getEntryPointId(),
                                                                                                          handle.getObject() );
             if ( !typeConf.isTMSEnabled() && (!wasOTCSerialized || tmsEnabled.contains(typeConf.getTypeName()) ) ) {
                 typeConf.enableTMS();
@@ -570,8 +574,8 @@ public class ProtobufInputMarshaller {
 
             if ( key.getStatus() == EqualityKey.JUSTIFIED ) {
                 // not yet added to the object stores
-                ((NamedEntryPoint) handle.getEntryPoint()).getObjectStore().addHandle( handle,
-                                                                                       handle.getObject() );
+                ((NamedEntryPoint) handle.getEntryPoint((( NamedEntryPoint ) wmep).getInternalWorkingMemory())).getObjectStore()
+                        .addHandle( handle, handle.getObject() );
                 // add handle to object type node
                 assertHandleIntoOTN( context,
                                      context.wm,
@@ -579,7 +583,7 @@ public class ProtobufInputMarshaller {
                                      pctxs );
             }
 
-            for ( Integer factHandleId : _key.getOtherHandleList() ) {
+            for ( Long factHandleId : _key.getOtherHandleList() ) {
                 handle = context.handles.get( factHandleId );
                 key.addFactHandle( handle );
                 handle.setEqualityKey( key );
@@ -628,7 +632,7 @@ public class ProtobufInputMarshaller {
                                                     (context.kBase == null) ? null : context.kBase.getRootClassLoader() );
                     }
 
-                    ObjectTypeConf typeConf = context.wm.getObjectTypeConfigurationRegistry().getObjectTypeConf( ((NamedEntryPoint) handle.getEntryPoint()).getEntryPoint(),
+                    ObjectTypeConf typeConf = context.wm.getObjectTypeConfigurationRegistry().getObjectTypeConf( handle.getEntryPointId(),
                                                                                                                  handle.getObject() );
                     tms.readLogicalDependency( handle,
                                                object,
@@ -735,7 +739,7 @@ public class ProtobufInputMarshaller {
                 return trigger;
             }
             case POINT_IN_TIME : {
-                PointInTimeTrigger trigger = new PointInTimeTrigger( _trigger.getPit().getNextFireTime(), null, null );
+                PointInTimeTrigger trigger = PointInTimeTrigger.createPointInTimeTrigger( _trigger.getPit().getNextFireTime(), null );
                 return trigger;
             }
             case COMPOSITE_MAX_DURATION : {
@@ -876,9 +880,9 @@ public class ProtobufInputMarshaller {
     }
 
     public static class TupleKey {
-        private final int[] tuple;
+        private final long[] tuple;
 
-        public TupleKey(int[] tuple) {
+        public TupleKey(long[] tuple) {
             super();
             this.tuple = tuple;
         }

@@ -17,6 +17,7 @@
 package org.kie.dmn.feel.util;
 
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class Either<L,R> {
@@ -44,6 +45,14 @@ public class Either<L,R> {
         return ! isLeft();
     }
     
+    protected Optional<L> getLeft() {
+        return left;
+    }
+
+    protected Optional<R> getRight() {
+        return right;
+    }
+
     public R getOrElse(R default_value) {
         return cata(e -> default_value, Function.identity());
     }
@@ -59,5 +68,15 @@ public class Either<L,R> {
     public <X> X cata(Function<L,X> left, Function<R,X> right) {
         // warning: left.invoke, because of FEEL specs, could return null. The below is the safest way to implement cata over this Either.
         return isLeft() ? left.apply( this.left.get() ) : right.apply( this.right.orElse( null ) );
+    }
+
+    public void consume(Consumer<L> leftConsumer, Consumer<R> rightConsumer) {
+        cata(x -> {
+            leftConsumer.accept(x);
+            return null;
+        }, x -> {
+            rightConsumer.accept(x);
+            return null;
+        });
     }
 }

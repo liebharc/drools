@@ -7,13 +7,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import org.drools.constraint.parser.ast.expr.OOPathChunk;
-import org.drools.constraint.parser.ast.expr.OOPathExpr;
+import org.drools.mvel.parser.ast.expr.OOPathChunk;
+import org.drools.mvel.parser.ast.expr.OOPathExpr;
 import com.github.javaparser.ast.expr.BooleanLiteralExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
-import org.drools.constraint.parser.printer.PrintUtil;
+import org.drools.mvel.parser.printer.PrintUtil;
 import org.drools.modelcompiler.builder.PackageModel;
 import org.drools.modelcompiler.builder.errors.InvalidExpressionErrorResult;
 import org.drools.modelcompiler.builder.generator.drlxparse.ConstraintParser;
@@ -23,6 +23,7 @@ import org.drools.modelcompiler.builder.generator.drlxparse.SingleDrlxParseSucce
 import org.drools.modelcompiler.builder.generator.expression.AbstractExpressionBuilder;
 
 import static org.drools.core.util.ClassUtils.extractGenericType;
+import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.THIS_PLACEHOLDER;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.generateLambdaWithoutParameters;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.prepend;
 import static org.drools.modelcompiler.builder.generator.DslMethodNames.AND_CALL;
@@ -77,7 +78,7 @@ public class OOPathExprGenerator {
                 bindingId = context.getOOPathId(fieldType, chunkKey);
             }
             final Expression accessorLambda = generateLambdaWithoutParameters(Collections.emptySortedSet(),
-                                                                              prepend(new NameExpr("_this"), callExpr.getExpression()));
+                                                                              prepend(new NameExpr(THIS_PLACEHOLDER), callExpr.getExpression()));
 
             final MethodCallExpr reactiveFrom = new MethodCallExpr(null, REACTIVE_FROM_CALL);
             reactiveFrom.addArgument(context.getVarExpr(previousBind));

@@ -222,7 +222,7 @@ public class NamedEntryPoint
                         key = tms.get( object );
                     }
 
-                    if ( key != null && key.getStatus() == EqualityKey.JUSTIFIED ) {
+                    if ( key != null && key.getStatus() == EqualityKey.JUSTIFIED && handle != null) {
                         // The justified set needs to be staged, before we can continue with the stated insert
                         BeliefSet bs = handle.getEqualityKey().getBeliefSet();
                         bs.getBeliefSystem().stage( propagationContext, bs ); // staging will set it's status to stated
@@ -355,8 +355,8 @@ public class NamedEntryPoint
 
                 final Object originalObject = handle.getObject();
 
-                if (handle.getEntryPoint() != this) {
-                    throw new IllegalArgumentException("Invalid Entry Point. You updated the FactHandle on entry point '" + handle.getEntryPoint().getEntryPointId() + "' instead of '" + getEntryPointId() + "'");
+                if (!handle.getEntryPointId().equals( entryPoint )) {
+                    throw new IllegalArgumentException("Invalid Entry Point. You updated the FactHandle on entry point '" + handle.getEntryPointId() + "' instead of '" + getEntryPointId() + "'");
                 }
 
                 final ObjectTypeConf typeConf = getObjectTypeConfigurationRegistry().getObjectTypeConf(this.entryPoint, object);
@@ -384,7 +384,7 @@ public class NamedEntryPoint
                     if ((oldKey.getStatus() == EqualityKey.JUSTIFIED || oldKey.getBeliefSet() != null) && newKey != oldKey) {
                         // Mixed stated and justified, we cannot have updates untill we figure out how to use this.
                         throw new IllegalStateException("Currently we cannot modify something that has mixed stated and justified equal objects. " +
-                                                                "Rule " + activation.getRule().getName() + " attempted an illegal operation");
+                                                                "Rule " + (activation == null ? "" : activation.getRule().getName()) + " attempted an illegal operation");
                     }
 
                     if (newKey == null) {
@@ -477,8 +477,8 @@ public class NamedEntryPoint
                     handle = this.objectStore.reconnect(handle);
                 }
 
-                if (handle.getEntryPoint() != this) {
-                    throw new IllegalArgumentException("Invalid Entry Point. You updated the FactHandle on entry point '" + handle.getEntryPoint().getEntryPointId() + "' instead of '" + getEntryPointId() + "'");
+                if (!handle.getEntryPointId().equals( entryPoint )) {
+                    throw new IllegalArgumentException("Invalid Entry Point. You updated the FactHandle on entry point '" + handle.getEntryPointId() + "' instead of '" + getEntryPointId() + "'");
                 }
 
                 EqualityKey key = handle.getEqualityKey();

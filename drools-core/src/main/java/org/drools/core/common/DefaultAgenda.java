@@ -1330,7 +1330,7 @@ public class DefaultAgenda
 
         public boolean toFireUntilHalt() {
             synchronized (stateMachineLock) {
-                if ( currentState == ExecutionState.FIRING_UNTIL_HALT ) {
+                if ( currentState == ExecutionState.FIRING_UNTIL_HALT || currentState == ExecutionState.HALTING ) {
                     return false;
                 }
                 waitAndEnterExecutionState( ExecutionState.FIRING_UNTIL_HALT );
@@ -1433,7 +1433,7 @@ public class DefaultAgenda
             synchronized (stateMachineLock) {
                 if (currentState != ExecutionState.INACTIVE) {
                     setCurrentState( ExecutionState.INACTIVE );
-                    stateMachineLock.notify();
+                    stateMachineLock.notifyAll();
                     propagationList.onEngineInactive();
                 }
             }
@@ -1443,7 +1443,7 @@ public class DefaultAgenda
             synchronized (stateMachineLock) {
                 if (currentState != ExecutionState.INACTIVE && currentState != ExecutionState.INACTIVE_ON_FIRING_UNTIL_HALT) {
                     setCurrentState( ExecutionState.INACTIVE_ON_FIRING_UNTIL_HALT );
-                    stateMachineLock.notify();
+                    stateMachineLock.notifyAll();
                 }
             }
         }
@@ -1466,7 +1466,7 @@ public class DefaultAgenda
                     workingMemory.notifyWaitOnRest();
                 }
                 waitAndEnterExecutionState( ExecutionState.DISPOSED );
-                stateMachineLock.notify();
+                stateMachineLock.notifyAll();
                 return true;
             }
         }
@@ -1500,7 +1500,7 @@ public class DefaultAgenda
         ObjectTypeNode.retractLeftTuples( factHandle, ectx, workingMemory );
         ObjectTypeNode.retractRightTuples( factHandle, ectx, workingMemory );
         if ( factHandle.isPendingRemoveFromStore() ) {
-            String epId = factHandle.getEntryPoint().getEntryPointId();
+            String epId = factHandle.getEntryPointName();
             ( (InternalWorkingMemoryEntryPoint) workingMemory.getEntryPoint( epId ) ).removeFromObjectStore( factHandle );
         }
     }

@@ -17,17 +17,19 @@ package org.drools.core.command.runtime.pmml;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.xml.bind.annotation.XmlAccessType;
 import javax.xml.bind.annotation.XmlAccessorType;
 import javax.xml.bind.annotation.XmlAttribute;
 import javax.xml.bind.annotation.XmlElement;
+import javax.xml.bind.annotation.XmlElements;
 import javax.xml.bind.annotation.XmlRootElement;
 
 import org.drools.core.command.IdentifiableResult;
-import org.drools.core.command.RequestContextImpl;
 import org.drools.core.definitions.InternalKnowledgePackage;
 import org.drools.core.definitions.rule.impl.RuleImpl;
 import org.drools.core.impl.InternalKnowledgeBase;
@@ -42,6 +44,7 @@ import org.kie.api.pmml.PMML4Result;
 import org.kie.api.pmml.PMMLRequestData;
 import org.kie.api.pmml.ParameterInfo;
 import org.kie.api.runtime.Context;
+import org.kie.api.runtime.KieSession;
 import org.kie.api.runtime.rule.DataSource;
 import org.kie.api.runtime.rule.RuleUnit;
 import org.kie.api.runtime.rule.RuleUnitExecutor;
@@ -59,6 +62,10 @@ public class ApplyPmmlModelCommand implements ExecutableCommand<PMML4Result>, Id
     private Boolean hasMining;
     @XmlElement(name="requestData")
     private PMMLRequestData requestData;
+    @XmlElements(
+        @XmlElement(name = "complexInputObject", type = Object.class)
+    )
+    private List<Object> complexInputObjects;
 
     
     public ApplyPmmlModelCommand() {
@@ -67,15 +74,20 @@ public class ApplyPmmlModelCommand implements ExecutableCommand<PMML4Result>, Id
     }
     
     public ApplyPmmlModelCommand(PMMLRequestData requestData) {
-        initialize(requestData, null);
-    }
-    
-    public ApplyPmmlModelCommand(PMMLRequestData requestData, Boolean hasMining) {
-        initialize(requestData, hasMining);
+        initialize(requestData, null, null);
     }
 
-    private void initialize(PMMLRequestData requestData, Boolean hasMining) {
+    public ApplyPmmlModelCommand(PMMLRequestData requestData, List<Object> complexInputList) {
+        initialize(requestData, complexInputList, null);
+    }
+    
+    public ApplyPmmlModelCommand(PMMLRequestData requestData, List<Object> complexInputList, Boolean hasMining) {
+        initialize(requestData, complexInputList, hasMining);
+    }
+
+    private void initialize(PMMLRequestData requestData, List<Object> complexInputList, Boolean hasMining) {
         this.requestData = requestData;
+        this.complexInputObjects = complexInputList != null ? new ArrayList(complexInputList) : new ArrayList<>();
         this.hasMining = hasMining != null ? hasMining : Boolean.FALSE;
     }
     
@@ -106,6 +118,12 @@ public class ApplyPmmlModelCommand implements ExecutableCommand<PMML4Result>, Id
     public boolean isMining() {
         if (hasMining == null || hasMining.booleanValue() == false) return false;
         return true;
+    }
+
+    public void addComplexInputObject(Object o) {
+        if (o != null) {
+            this.complexInputObjects.add(o);
+        }
     }
 
     @Override
@@ -150,19 +168,62 @@ public class ApplyPmmlModelCommand implements ExecutableCommand<PMML4Result>, Id
         return packageNames;
     }
 
+    private <T> T castObject(Object o, Class<T> clazz) {
+        T result = null;
+        if (o != null && clazz != null) {
+            result = clazz.cast(o);
+        }
+        return result;
+    }
     
+    @SuppressWarnings("unchecked")
+    private <T> DataSource<T> createDataSource(RuleUnitExecutor executor, String dsName, Object o) {
+        T object = (T) castObject(o, o.getClass());
+        return executor.newDataSource(dsName, object);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> void insertDataObject(DataSource<T> ds, Object object) {
+        if (object == null) {
+            throw new IllegalArgumentException("Cannot insert null object into a DataSource");
+        }
+        T obj = null;
+        try {
+            obj = (T) object;
+        } catch (ClassCastException ccx) {
+            throw new IllegalArgumentException("Invalid attempt to insert a " + object.getClass().getName() +
+                                               " object into a DataSource");
+        }
+        ds.insert((T) object);
+    }
     
+    private KieBase lookupKieBase(RegistryContext ctx) {
+        if (ctx == null) {
+            return null;
+        }
+        KieBase kbase = ctx.lookup(KieBase.class);
+
+        if (kbase == null) {
+            KieSession session = ctx.lookup(KieSession.class);
+            if (session != null) {
+                kbase = session.getKieBase();
+            }
+        }
+        return kbase;
+    }
+
     @Override
     public PMML4Result execute(Context context) {
-        RequestContextImpl ctx = (RequestContextImpl)context;
         if (requestData == null) {
-            requestData = (PMMLRequestData)ctx.get("request");
+            throw new IllegalStateException("ApplyPmmlModelCommand requires request data (PMMLRequestData) to execute");
         }
+        PMML4Result resultHolder = new PMML4Result(requestData.getCorrelationId());
+        RegistryContext ctx = (RegistryContext) context;
         if (packageName == null) {
             packageName = (String)ctx.get("packageName");
         }
-        KieBase kbase = ((RegistryContext)context).lookup(KieBase.class);
-        PMML4Result resultHolder = new PMML4Result(requestData.getCorrelationId());
+
+        KieBase kbase = lookupKieBase(ctx);
         if (kbase == null) {
             resultHolder.setResultCode("ERROR-1");
         } else {
@@ -173,6 +234,17 @@ public class ApplyPmmlModelCommand implements ExecutableCommand<PMML4Result>, Id
                 RuleUnitExecutor executor = RuleUnitExecutor.create().bind(kbase);
                 DataSource<PMMLRequestData> data = executor.newDataSource("request", this.requestData);
                 DataSource<PMML4Result> resultData = executor.newDataSource("results", resultHolder);
+                if (complexInputObjects != null && !complexInputObjects.isEmpty()) {
+                    Map<String, DataSource<?>> datasources = new HashMap<>();
+                    for (Object obj : complexInputObjects) {
+                        String dsName = "externalBean" + obj.getClass().getSimpleName();
+                        if (datasources.containsKey(dsName)) {
+                            insertDataObject(datasources.get(dsName), obj);
+                        } else {
+                            datasources.put(dsName, createDataSource(executor, dsName, obj));
+                        }
+                    }
+                }
                 executor.newDataSource("pmmlData");
                 if (isMining()) {
                     executor.newDataSource("childModelSegments");
@@ -203,13 +275,18 @@ public class ApplyPmmlModelCommand implements ExecutableCommand<PMML4Result>, Id
             }
         }
         List<PMML4Output<?>> outputs = OutputFieldFactory.createOutputsFromResults(resultHolder);
-        ExecutionResultImpl execRes = ctx.lookup(ExecutionResultImpl.class);
+        Optional<ExecutionResultImpl> execRes = Optional.ofNullable(ctx.lookup(ExecutionResultImpl.class));
         ctx.register(PMML4Result.class, resultHolder);
-        execRes.setResult("results", resultHolder);
+        execRes.ifPresent(result -> {
+            result.setResult("results", resultHolder);
+        });
         outputs.forEach(out -> {
-            execRes.setResult(out.getName(), out);
+            execRes.ifPresent(result -> {
+                result.setResult(out.getName(), out);
+            });
             resultHolder.updateResultVariable(out.getName(), out);
         });
+
         return resultHolder;
     }
 

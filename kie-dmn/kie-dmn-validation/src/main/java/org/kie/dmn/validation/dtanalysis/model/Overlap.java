@@ -42,12 +42,10 @@ public class Overlap {
 
     @Override
     public String toString() {
-        StringBuilder builder = new StringBuilder();
-        builder.append("Overlap values ");
-        builder.append(overlap);
-        builder.append(" for rules: ");
-        builder.append(rules);
-        return builder.toString();
+        return "Overlap values " +
+                overlap +
+                " for rules: " +
+                rules;
     }
 
     public int contigousOnDimension(Overlap other) {
@@ -102,29 +100,32 @@ public class Overlap {
         final int prime = 31;
         int result = 1;
         result = prime * result + ((overlap == null) ? 0 : overlap.hashCode());
-        result = prime * result + ((rules == null) ? 0 : rules.hashCode());
+        result = prime * result + rules.hashCode();
         return result;
     }
 
     @Override
     public boolean equals(Object obj) {
-        if (this == obj)
+        if (this == obj) {
             return true;
-        if (obj == null)
+        }
+        if (obj == null) {
             return false;
-        if (getClass() != obj.getClass())
+        }
+        if (getClass() != obj.getClass()) {
             return false;
+        }
         Overlap other = (Overlap) obj;
         if (overlap == null) {
-            if (other.overlap != null)
+            if (other.overlap != null) {
                 return false;
-        } else if (!overlap.equals(other.overlap))
+            }
+        } else if (!overlap.equals(other.overlap)) {
             return false;
-        if (rules == null) {
-            if (other.rules != null)
-                return false;
-        } else if (!rules.equals(other.rules))
+        }
+        if (!rules.equals(other.rules)) {
             return false;
+        }
         return true;
     }
 

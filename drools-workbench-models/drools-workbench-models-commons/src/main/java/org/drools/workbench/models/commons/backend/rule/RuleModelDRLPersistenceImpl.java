@@ -16,6 +16,8 @@
 
 package org.drools.workbench.models.commons.backend.rule;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -1313,10 +1315,8 @@ public class RuleModelDRLPersistenceImpl
                                          final String fieldType,
                                          final String value) {
             String workingValue = value.trim();
-            if (workingValue.startsWith("(")) {
+            if (workingValue.startsWith("(") && workingValue.endsWith(")")) {
                 workingValue = workingValue.substring(1);
-            }
-            if (workingValue.endsWith(")")) {
                 workingValue = workingValue.substring(0,
                                                       workingValue.length() - 1);
             }
@@ -1356,7 +1356,7 @@ public class RuleModelDRLPersistenceImpl
                 constraintValueBuilder.buildLHSFieldValue(buf,
                                                           type,
                                                           DataType.TYPE_COLLECTION,
-                                                          "@{makeValueList(" + value + ")}");
+                                                          "@{makeValueList(" + value + "," + DataType.isNumeric(fieldType) + ")}");
                 buf.append(" ");
             } else {
                 buf.append(" ");
@@ -2547,7 +2547,6 @@ public class RuleModelDRLPersistenceImpl
                     sb.append(param);
                 }
                 fac.setFunction(funcName + "(" + sb + ")");
-                break;
             }
             return fac;
         } else if (patternSource instanceof CollectDescr) {
@@ -4005,7 +4004,7 @@ public class RuleModelDRLPersistenceImpl
                 return null;
             }
             for (ModelField typeField : typeFields) {
-                if (typeField.getType().equals(DataType.TYPE_THIS)) {
+                if (typeField.getName().equals(DataType.TYPE_THIS)) {
                     return typeField;
                 }
             }
@@ -4080,7 +4079,7 @@ public class RuleModelDRLPersistenceImpl
                 for (int i = 0; i < connectiveConstraints.length; i++) {
                     String constraint = splittedValue[i + 1].trim();
                     String connectiveOperator = findOperator(constraint);
-                    String connectiveValue = constraint.substring(connectiveOperator.length()).trim();
+                    String connectiveValue = constraint.substring(connectiveOperator == null ? 0 : connectiveOperator.length()).trim();
 
                     connectiveConstraints[i] = new ConnectiveConstraint();
                     connectiveConstraints[i].setOperator((isAnd ? "&& " : "|| ") + (connectiveOperator == null ? null : connectiveOperator.trim()));
@@ -4143,7 +4142,11 @@ public class RuleModelDRLPersistenceImpl
                 } else {
                     con.setConstraintValueType(SingleFieldConstraint.TYPE_LITERAL);
                 }
-                con.setValue(value);
+                if (isNumberThatNeedsToBeTrimmed(value)) {
+                    con.setValue(trim(value));
+                } else {
+                    con.setValue(value);
+                }
             }
 
             final String type = RuleModelPersistenceHelper.inferDataTypeFromConstraint(m,
@@ -4161,7 +4164,46 @@ public class RuleModelDRLPersistenceImpl
 
             return type;
         }
+
+        private boolean isNumberThatNeedsToBeTrimmed(final String value) {
+            if (isBigDecimal(value) || isBigInteger(value)) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        private boolean isBigDecimal(final String value) {
+            if (value.endsWith("B")) {
+                try {
+                    new BigDecimal(trim(value));
+                } catch (NumberFormatException e) {
+                    return false;
+                }
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        private boolean isBigInteger(final String value) {
+            if (value.endsWith("I")) {
+                try {
+                    new BigInteger(trim(value));
+                } catch (NumberFormatException e) {
+                    return false;
+                }
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        private String trim(final String value) {
+            return value.substring(0, value.length() - 1);
+        }
     }
+
 
     /**
      * If the bound type is not in the DMO it probably hasn't been imported.

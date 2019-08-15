@@ -42,11 +42,13 @@ import org.kie.dmn.api.core.DMNMessage;
 import org.kie.dmn.api.core.DMNModel;
 import org.kie.dmn.api.marshalling.DMNMarshaller;
 import org.kie.dmn.core.api.DMNFactory;
+import org.kie.dmn.core.compiler.CoerceDecisionServiceSingletonOutputOption;
 import org.kie.dmn.core.compiler.DMNCompilerConfigurationImpl;
 import org.kie.dmn.core.compiler.DMNCompilerImpl;
 import org.kie.dmn.core.compiler.DMNProfile;
 import org.kie.dmn.core.compiler.ImportDMNResolverUtil;
 import org.kie.dmn.core.compiler.ImportDMNResolverUtil.ImportType;
+import org.kie.dmn.core.compiler.RuntimeTypeCheckOption;
 import org.kie.dmn.core.compiler.profiles.ExtendedDMNProfile;
 import org.kie.dmn.core.impl.DMNKnowledgeBuilderError;
 import org.kie.dmn.core.impl.DMNPackageImpl;
@@ -88,11 +90,6 @@ public class DMNAssemblerService implements KieAssemblerService {
         KnowledgeBuilderImpl kbuilderImpl = (KnowledgeBuilderImpl) kbuilder;
         DMNCompilerImpl dmnCompiler = (DMNCompilerImpl) kbuilderImpl.getCachedOrCreate(DMN_COMPILER_CACHE_KEY, () -> getCompiler(kbuilderImpl));
         DMNMarshaller dmnMarshaller = dmnCompiler.getMarshaller();
-        if (resources.size() == 1) {
-            // quick path:
-            internalAddResource(kbuilderImpl, dmnCompiler, resources.iterator().next(), Collections.emptyList());
-            return;
-        }
         List<DMNResource> dmnResources = new ArrayList<>();
         for (ResourceWithConfiguration r : resources) {
             Definitions definitions = dmnMarshaller.unmarshal(r.getResource().getReader());
@@ -100,9 +97,29 @@ public class DMNAssemblerService implements KieAssemblerService {
             DMNResource dmnResource = new DMNResource(modelID, r, definitions);
             dmnResources.add(dmnResource);
         }
-        enrichDMNResourcesWithImportsDependencies(dmnResources);
-        List<DMNResource> sortedDmnResources = DMNResourceDependenciesSorter.sort(dmnResources);
+
         Collection<DMNModel> dmnModels = new ArrayList<>();
+        // KIE API: KieContainer upgrade using KieContainer#updateToVersion -based DMN Import resolution strategy
+        if (kbuilderImpl.getKnowledgeBase() != null) {
+            for (InternalKnowledgePackage pr : kbuilderImpl.getKnowledgeBase().getPackagesMap().values()) {
+                ResourceTypePackage resourceTypePackage = pr.getResourceTypePackages().get(ResourceType.DMN);
+                if (resourceTypePackage != null) {
+                    DMNPackageImpl dmnpkg = (DMNPackageImpl) resourceTypePackage;
+                    dmnModels.addAll(dmnpkg.getAllModels().values());
+                }
+            }
+        }
+        // Workbench: InternalKieBuilder#createFileSet#build -based DMN Import resolution strategy
+        for (PackageRegistry pr : kbuilderImpl.getPackageRegistry().values()) {
+            ResourceTypePackage resourceTypePackage = pr.getPackage().getResourceTypePackages().get(ResourceType.DMN);
+            if (resourceTypePackage != null) {
+                DMNPackageImpl dmnpkg = (DMNPackageImpl) resourceTypePackage;
+                dmnModels.addAll(dmnpkg.getAllModels().values());
+            }
+        }
+
+        enrichDMNResourcesWithImportsDependencies(dmnResources, dmnModels);
+        List<DMNResource> sortedDmnResources = DMNResourceDependenciesSorter.sort(dmnResources);
 
         for (DMNResource dmnRes : sortedDmnResources) {
             DMNModel dmnModel = internalAddResource(kbuilderImpl, dmnCompiler, dmnRes.getResAndConfig(), dmnModels);
@@ -110,14 +127,18 @@ public class DMNAssemblerService implements KieAssemblerService {
         }
     }
 
-    public static void enrichDMNResourcesWithImportsDependencies(List<DMNResource> dmnResources) {
-        // enrich with imports
+    public static void enrichDMNResourcesWithImportsDependencies(List<DMNResource> dmnResources, Collection<DMNModel> dmnModels) {
         for (DMNResource r : dmnResources) {
             for (Import i : r.getDefinitions().getImport()) {
                 if (ImportDMNResolverUtil.whichImportType(i) == ImportType.DMN) {
-                    Either<String, DMNResource> resolvedResult = ImportDMNResolverUtil.resolveImportDMN(i, dmnResources, DMNResource::getModelID);
-                    DMNResource located = resolvedResult.getOrElseThrow(RuntimeException::new);
-                    r.addDependency(located.getModelID());
+                    Either<String, DMNModel> inAlreadyCompiled = ImportDMNResolverUtil.resolveImportDMN(i, dmnModels, x -> new QName(x.getNamespace(), x.getName()));
+                    if (inAlreadyCompiled.isLeft()) { // the DMN Model is not already available in the KieBuilder and needs to be compiled.
+                        Either<String, DMNResource> resolvedResult = ImportDMNResolverUtil.resolveImportDMN(i, dmnResources, DMNResource::getModelID);
+                        DMNResource located = resolvedResult.getOrElseThrow(RuntimeException::new);
+                        r.addDependency(located.getModelID());
+                    } else {
+                        // do nothing: the DMN Model is already available in the KieBuilder.
+                    }
                 }
             }
         }
@@ -176,7 +197,7 @@ public class DMNAssemblerService implements KieAssemblerService {
         return model;
     }
 
-    private List<DMNProfile> getDMNProfiles(KnowledgeBuilderImpl kbuilderImpl) {
+    protected List<DMNProfile> getDMNProfiles(KnowledgeBuilderImpl kbuilderImpl) {
         ChainedProperties chainedProperties = kbuilderImpl.getBuilderConfiguration().getChainedProperties();
 
         List<DMNProfile> dmnProfiles = new ArrayList<>();
@@ -224,6 +245,11 @@ public class DMNAssemblerService implements KieAssemblerService {
             compilerConfiguration = compilerConfigWithKModulePrefs(kbuilderImpl.getRootClassLoader(), kbuilderImpl.getBuilderConfiguration().getChainedProperties(), dmnProfiles, (DMNCompilerConfigurationImpl) DMNFactory.newCompilerConfiguration());
         } else {
             compilerConfiguration = externalCompilerConfiguration;
+        }
+
+        if (isStrictMode(kbuilderImpl.getBuilderConfiguration().getChainedProperties())) {
+            compilerConfiguration.setProperty(RuntimeTypeCheckOption.PROPERTY_NAME, "true");
+            compilerConfiguration.setProperty(CoerceDecisionServiceSingletonOutputOption.PROPERTY_NAME, "false");
         }
 
         return DMNFactory.newCompiler(compilerConfiguration);

@@ -88,7 +88,8 @@ import static org.kie.api.io.ResourceType.determineResourceType;
 
 public class CanonicalKieModule implements InternalKieModule {
 
-    public static final String MODEL_FILE = "META-INF/kie/drools-model";
+    public static final String MODEL_FILE_DIRECTORY = "META-INF/kie/";
+    public static final String MODEL_FILE_NAME = "drools-model";
 
     public static final String MODEL_VERSION = "Drools-Model-Version:";
 
@@ -187,7 +188,9 @@ public class CanonicalKieModule implements InternalKieModule {
                     continue;
                 }
                 KieBaseModelImpl includeKBaseModel = ( KieBaseModelImpl ) kieProject.getKieBaseModel( include );
-                models.addAll( (( CanonicalKieModule ) includeModule).getModelForKBase( includeKBaseModel ) );
+                CanonicalKieModule canonicalInclude = (CanonicalKieModule) includeModule;
+                canonicalInclude.setModuleClassLoader((ProjectClassLoader)kieProject.getClassLoader());
+                models.addAll( canonicalInclude.getModelForKBase( includeKBaseModel ) );
                 processes.addAll( findProcesses( includeModule, includeKBaseModel ) );
             }
         }
@@ -270,7 +273,7 @@ public class CanonicalKieModule implements InternalKieModule {
 
     private Collection<String> getRuleClassNames() {
         if ( ruleClassesNames == null ) {
-            ruleClassesNames = findRuleClassesNames( getModuleClassLoader() );
+            ruleClassesNames = findRuleClassesNames();
         }
         return ruleClassesNames;
     }
@@ -293,15 +296,15 @@ public class CanonicalKieModule implements InternalKieModule {
         return models;
     }
 
-    private static Collection<String> findRuleClassesNames( ClassLoader kieProjectCL) {
+    private Collection<String> findRuleClassesNames() {
         String modelFiles;
-        try (InputStream modelFileStream = kieProjectCL.getResourceAsStream( MODEL_FILE )) {
-            if (modelFileStream == null) {
-                return Collections.emptyList();
-            }
-            modelFiles = new String( IoUtils.readBytesFromInputStream( modelFileStream ) );
+        ReleaseId releaseId = internalKieModule.getReleaseId();
+        String modelFileName = getModelFileWithGAV(releaseId);
+        try {
+            Resource modelFile = internalKieModule.getResource(modelFileName);
+            modelFiles = new String(IoUtils.readBytesFromInputStream(modelFile.getInputStream()));
         } catch (IOException e) {
-            throw new RuntimeException( e );
+            throw new RuntimeException(e);
         }
 
         String[] lines = modelFiles.split( "\n" );
@@ -527,6 +530,7 @@ public class CanonicalKieModule implements InternalKieModule {
             kbConf.setOption( kBaseModel.getEqualsBehavior() );
             kbConf.setOption( kBaseModel.getEventProcessingMode() );
             kbConf.setOption( kBaseModel.getDeclarativeAgenda() );
+            kbConf.setOption( kBaseModel.getSequential() );
         }
         return kbConf;
     }
@@ -670,5 +674,9 @@ public class CanonicalKieModule implements InternalKieModule {
     @Override
     public ReleaseId getReleaseId() {
         return internalKieModule.getReleaseId();
+    }
+
+    public static String getModelFileWithGAV(ReleaseId releaseId) {
+        return MODEL_FILE_DIRECTORY + releaseId.getGroupId() + "/" + releaseId.getArtifactId() + "/" + MODEL_FILE_NAME;
     }
 }

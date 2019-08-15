@@ -30,14 +30,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import org.drools.compiler.builder.impl.CompositeKnowledgeBuilderImpl;
-import org.drools.compiler.builder.impl.KnowledgeBuilderConfigurationImpl;
-import org.drools.compiler.compiler.DialectCompiletimeRegistry;
-import org.drools.compiler.compiler.io.memory.MemoryFileSystem;
-import org.drools.compiler.kie.builder.impl.ResultsImpl;
-import org.drools.compiler.lang.descr.EntryPointDeclarationDescr;
-import org.drools.core.definitions.InternalKnowledgePackage;
-import com.github.javaparser.JavaParser;
+import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.BodyDeclaration;
@@ -56,28 +49,33 @@ import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
+import org.drools.compiler.builder.impl.KnowledgeBuilderConfigurationImpl;
+import org.drools.compiler.compiler.DialectCompiletimeRegistry;
+import org.drools.compiler.lang.descr.EntryPointDeclarationDescr;
+import org.drools.core.definitions.InternalKnowledgePackage;
 import org.drools.model.Global;
 import org.drools.model.Model;
 import org.drools.model.Rule;
 import org.drools.model.WindowReference;
-import org.drools.modelcompiler.builder.generator.ConsequenceValidation;
 import org.drools.modelcompiler.builder.generator.DRLIdGenerator;
 import org.drools.modelcompiler.builder.generator.DrlxParseUtil;
 import org.drools.modelcompiler.builder.generator.QueryGenerator;
 import org.drools.modelcompiler.builder.generator.QueryParameter;
+import org.kie.api.builder.ReleaseId;
 import org.kie.api.runtime.rule.AccumulateFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static java.util.stream.Collectors.joining;
-
-import static org.drools.core.util.StringUtils.generateUUID;
-import static com.github.javaparser.ast.Modifier.*;
+import static com.github.javaparser.StaticJavaParser.parseBodyDeclaration;
+import static com.github.javaparser.ast.Modifier.finalModifier;
 import static com.github.javaparser.ast.Modifier.publicModifier;
 import static com.github.javaparser.ast.Modifier.staticModifier;
+import static java.util.stream.Collectors.joining;
+import static org.drools.core.util.StringUtils.generateUUID;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.toClassOrInterfaceType;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.toVar;
 import static org.drools.modelcompiler.builder.generator.DslMethodNames.GLOBAL_OF_CALL;
+import static org.drools.modelcompiler.util.StringUtil.md5Hash;
 
 public class PackageModel {
 
@@ -125,23 +123,29 @@ public class PackageModel {
     private KnowledgeBuilderConfigurationImpl configuration;
     private Map<String, AccumulateFunction> accumulateFunctions;
     private InternalKnowledgePackage pkg;
-    private List<ConsequenceValidation> consequenceValidations = new ArrayList<>();
+
+    private final String pkgUUID;
 
     public PackageModel(String name, KnowledgeBuilderConfigurationImpl configuration, boolean isPattern, DialectCompiletimeRegistry dialectCompiletimeRegistry, DRLIdGenerator exprIdGenerator) {
+        this(null, name, configuration, isPattern, dialectCompiletimeRegistry, exprIdGenerator);
+    }
+
+    public PackageModel( ReleaseId releaseId, String name, KnowledgeBuilderConfigurationImpl configuration, boolean isPattern, DialectCompiletimeRegistry dialectCompiletimeRegistry, DRLIdGenerator exprIdGenerator) {
         this.name = name;
+        this.pkgUUID = (releaseId != null && !releaseId.isSnapshot()) ? md5Hash(releaseId.toString()+name) : generateUUID();
         this.isPattern = isPattern;
-        this.rulesFileName = generateRulesFileName();
+        this.rulesFileName = RULES_FILE_NAME + pkgUUID;
         this.configuration = configuration;
         this.exprIdGenerator = exprIdGenerator;
         this.dialectCompiletimeRegistry = dialectCompiletimeRegistry;
     }
 
-    public String getRulesFileName() {
-        return rulesFileName;
+    public String getPackageUUID() {
+        return pkgUUID;
     }
 
-    private String generateRulesFileName() {
-        return RULES_FILE_NAME + generateUUID();
+    public String getRulesFileName() {
+        return rulesFileName;
     }
 
     public KnowledgeBuilderConfigurationImpl getConfiguration() {
@@ -150,6 +154,10 @@ public class PackageModel {
 
     public String getName() {
         return name;
+    }
+
+    public String getPathName() {
+        return name.replace('.', '/');
     }
     
     public DRLIdGenerator getExprIdGenerator() {
@@ -293,7 +301,7 @@ public class PackageModel {
         return windowReferences;
     }
 
-    final static Type WINDOW_REFERENCE_TYPE = JavaParser.parseType(WindowReference.class.getCanonicalName());
+    final static Type WINDOW_REFERENCE_TYPE = StaticJavaParser.parseType(WindowReference.class.getCanonicalName());
 
     public List<MethodDeclaration> getFunctions() {
         return functions;
@@ -315,21 +323,6 @@ public class PackageModel {
     public DialectCompiletimeRegistry getDialectCompiletimeRegistry() {
         return dialectCompiletimeRegistry;
     }
-
-    public void addConsequenceValidation(ConsequenceValidation consequenceValidation) {
-        consequenceValidations.add(consequenceValidation);
-        consequenceValidation.setClassName(getName() + "." + rulesFileName);
-    }
-
-    public void validateConsequence(ClassLoader parentClassLoader, MemoryFileSystem memoryFileSystem, ResultsImpl messages) {
-        if(!consequenceValidations.isEmpty()) {
-            ClassLoader byteClassLoader = memoryFileSystem.memoryClassLoader(parentClassLoader);
-            for(ConsequenceValidation cv : consequenceValidations) {
-                cv.validate(byteClassLoader, messages);
-            }
-        }
-    }
-
     public static class RuleSourceResult {
 
         private final CompilationUnit mainRuleClass;
@@ -367,11 +360,11 @@ public class PackageModel {
         ClassOrInterfaceDeclaration rulesClass = cu.addClass(rulesFileName);
         rulesClass.addImplementedType(Model.class);
 
-        BodyDeclaration<?> dateFormatter = JavaParser.parseBodyDeclaration(
-                "public final static DateTimeFormatter " + DATE_TIME_FORMATTER_FIELD + " = DateTimeFormatter.ofPattern(DateUtils.getDateFormatMask());\n");
+        BodyDeclaration<?> dateFormatter = parseBodyDeclaration(
+                "public final static DateTimeFormatter " + DATE_TIME_FORMATTER_FIELD + " = DateTimeFormatter.ofPattern(DateUtils.getDateFormatMask(), Locale.ENGLISH);\n");
         rulesClass.addMember(dateFormatter);
 
-        BodyDeclaration<?> string2dateMethodMethod = JavaParser.parseBodyDeclaration(
+        BodyDeclaration<?> string2dateMethodMethod = parseBodyDeclaration(
                 "    @Override\n" +
                 "        public String getName() {\n" +
                 "        return \"" + name + "\";\n" +
@@ -379,14 +372,14 @@ public class PackageModel {
                 );
         rulesClass.addMember(string2dateMethodMethod);
 
-        BodyDeclaration<?> getNameMethod = JavaParser.parseBodyDeclaration(
+        BodyDeclaration<?> getNameMethod = parseBodyDeclaration(
                 "    public static Date " + STRING_TO_DATE_METHOD + "(String s) {\n" +
                 "        return GregorianCalendar.from(LocalDate.parse(s, DATE_TIME_FORMATTER).atStartOfDay(ZoneId.systemDefault())).getTime();\n" +
                 "    }\n"
                 );
         rulesClass.addMember(getNameMethod);
 
-        BodyDeclaration<?> getRulesMethod = JavaParser.parseBodyDeclaration(
+        BodyDeclaration<?> getRulesMethod = parseBodyDeclaration(
                 "    @Override\n" +
                 "    public List<org.drools.model.Rule> getRules() {\n" +
                 "        return rules;\n" +
@@ -398,7 +391,7 @@ public class PackageModel {
                 "Collections.emptyList()" :
                 "Arrays.asList(D.entryPoint(\"" + entryPoints.stream().collect( joining("\"), D.entryPoint(\"") ) + "\"))";
 
-        BodyDeclaration<?> getEntryPointsMethod = JavaParser.parseBodyDeclaration(
+        BodyDeclaration<?> getEntryPointsMethod = parseBodyDeclaration(
                 "    @Override\n" +
                 "    public List<org.drools.model.EntryPoint> getEntryPoints() {\n" +
                 "        return " + entryPointsBuilder + ";\n" +
@@ -413,21 +406,21 @@ public class PackageModel {
         JavadocComment exprIdComment = new JavadocComment(sb.toString());
         getRulesMethod.setComment(exprIdComment);
 
-        BodyDeclaration<?> getGlobalsMethod = JavaParser.parseBodyDeclaration(
+        BodyDeclaration<?> getGlobalsMethod = parseBodyDeclaration(
                 "    @Override\n" +
                 "    public List<org.drools.model.Global> getGlobals() {\n" +
                 "        return globals;\n" +
                 "    }\n");
         rulesClass.addMember(getGlobalsMethod);
 
-        BodyDeclaration<?> getQueriesMethod = JavaParser.parseBodyDeclaration(
+        BodyDeclaration<?> getQueriesMethod = parseBodyDeclaration(
                 "    @Override\n" +
                 "    public List<org.drools.model.Query> getQueries() {\n" +
                 "        return queries;\n" +
                 "    }\n");
         rulesClass.addMember(getQueriesMethod);
 
-        BodyDeclaration<?> getTypeMetaDataMethod = JavaParser.parseBodyDeclaration(
+        BodyDeclaration<?> getTypeMetaDataMethod = parseBodyDeclaration(
                 "    @Override\n" +
                 "    public List<org.drools.model.TypeMetaData> getTypeMetaDatas() {\n" +
                 "        return typeMetaDatas;\n" +
@@ -467,13 +460,13 @@ public class PackageModel {
         buildArtifactsDeclaration( getGlobals().keySet(), rulesClass, rulesListInitializerBody, "org.drools.model.Global", "globals", true );
 
         if ( !typeMetaDataExpressions.isEmpty() ) {
-            BodyDeclaration<?> typeMetaDatasList = JavaParser.parseBodyDeclaration("List<org.drools.model.TypeMetaData> typeMetaDatas = new ArrayList<>();");
+            BodyDeclaration<?> typeMetaDatasList = parseBodyDeclaration("List<org.drools.model.TypeMetaData> typeMetaDatas = new ArrayList<>();");
             rulesClass.addMember(typeMetaDatasList);
             for (Expression expr : typeMetaDataExpressions) {
                 addInitStatement( rulesListInitializerBody, expr, "typeMetaDatas" );
             }
         } else {
-            BodyDeclaration<?> typeMetaDatasList = JavaParser.parseBodyDeclaration("List<org.drools.model.TypeMetaData> typeMetaDatas = Collections.emptyList();");
+            BodyDeclaration<?> typeMetaDatasList = parseBodyDeclaration("List<org.drools.model.TypeMetaData> typeMetaDatas = Collections.emptyList();");
             rulesClass.addMember(typeMetaDatasList);
         }
 
@@ -523,8 +516,8 @@ public class PackageModel {
         }
 
         BodyDeclaration<?> rulesList = requiresMultipleRulesLists ?
-                JavaParser.parseBodyDeclaration("List<org.drools.model.Rule> rules = new ArrayList<>(" + ruleCount + ");") :
-                JavaParser.parseBodyDeclaration("List<org.drools.model.Rule> rules = rulesList;");
+                parseBodyDeclaration("List<org.drools.model.Rule> rules = new ArrayList<>(" + ruleCount + ");") :
+                parseBodyDeclaration("List<org.drools.model.Rule> rules = rulesList;");
         rulesClass.addMember(rulesList);
 
         if (!rulesListInitializer.getBody().getStatements().isEmpty()) {
@@ -536,13 +529,13 @@ public class PackageModel {
 
     private void buildArtifactsDeclaration( Collection<String> artifacts, ClassOrInterfaceDeclaration rulesClass, BlockStmt rulesListInitializerBody, String type, String fieldName, boolean needsToVar ) {
         if (!artifacts.isEmpty()) {
-            BodyDeclaration<?> queriesList = JavaParser.parseBodyDeclaration("List<" + type + "> " + fieldName + " = new ArrayList<>();");
+            BodyDeclaration<?> queriesList = parseBodyDeclaration("List<" + type + "> " + fieldName + " = new ArrayList<>();");
             rulesClass.addMember(queriesList);
             for (String name : artifacts) {
                 addInitStatement( rulesListInitializerBody, new NameExpr( needsToVar ? toVar(name) : name ), fieldName );
             }
         } else {
-            BodyDeclaration<?> queriesList = JavaParser.parseBodyDeclaration("List<" + type + "> " + fieldName + " = Collections.emptyList();");
+            BodyDeclaration<?> queriesList = parseBodyDeclaration("List<" + type + "> " + fieldName + " = Collections.emptyList();");
             rulesClass.addMember(queriesList);
         }
     }

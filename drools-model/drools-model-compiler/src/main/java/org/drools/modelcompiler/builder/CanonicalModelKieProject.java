@@ -17,6 +17,8 @@
 package org.drools.modelcompiler.builder;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.function.BiFunction;
 import java.util.stream.Stream;
@@ -35,6 +37,7 @@ import org.kie.internal.builder.KnowledgeBuilder;
 import org.kie.internal.jci.CompilationProblem;
 
 import static java.util.stream.Collectors.groupingBy;
+
 import static org.drools.modelcompiler.builder.JavaParserCompiler.getCompiler;
 
 ;
@@ -60,7 +63,7 @@ public class CanonicalModelKieProject extends KieModuleKieProject {
             // if the KieBase belongs to a different kmodule it is not necessary to build it
             return null;
         }
-        ModelBuilderImpl modelBuilder = new ModelBuilderImpl(getBuilderConfiguration( kBaseModel, kModule ), isPattern);
+        ModelBuilderImpl modelBuilder = new ModelBuilderImpl(getBuilderConfiguration( kBaseModel, kModule ), kModule.getReleaseId(), isPattern);
         modelBuilders.add(modelBuilder);
         return modelBuilder;
     }
@@ -69,7 +72,7 @@ public class CanonicalModelKieProject extends KieModuleKieProject {
     public void writeProjectOutput(MemoryFileSystem trgMfs, ResultsImpl messages) {
         MemoryFileSystem srcMfs = new MemoryFileSystem();
         ModelWriter modelWriter = new ModelWriter();
-        List<String> modelFiles = new ArrayList<>();
+        Collection<String> modelFiles = new HashSet<>();
 
         for (ModelBuilderImpl modelBuilder : modelBuilders) {
             final ModelWriter.Result result = modelWriter.writeModel( srcMfs, modelBuilder.getPackageModels() );
@@ -77,10 +80,6 @@ public class CanonicalModelKieProject extends KieModuleKieProject {
             final String[] sources = result.getSources();
             if(sources.length != 0) {
                 CompilationResult res = getCompiler().compile(sources, srcMfs, trgMfs, getClassLoader());
-
-                for (PackageModel pm : modelBuilder.getPackageModels()) {
-                    pm.validateConsequence(getClassLoader(), trgMfs, messages);
-                }
 
                 Stream.of(res.getErrors()).collect(groupingBy(CompilationProblem::getFileName))
                     .forEach( (name, errors) -> {
@@ -98,7 +97,7 @@ public class CanonicalModelKieProject extends KieModuleKieProject {
             }
         }
 
-        modelWriter.writeModelFile(modelFiles, trgMfs);
+        modelWriter.writeModelFile(modelFiles, trgMfs, getInternalKieModule().getReleaseId());
     }
 
     @Override

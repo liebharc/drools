@@ -44,6 +44,7 @@ import org.drools.core.reteoo.LeftTuple;
 import org.drools.core.reteoo.ObjectTypeConf;
 import org.drools.core.reteoo.ObjectTypeNode;
 import org.drools.core.reteoo.RightTuple;
+import org.drools.core.rule.EntryPointId;
 import org.drools.core.spi.Activation;
 import org.drools.core.spi.FactHandleFactory;
 import org.drools.core.spi.PropagationContext;
@@ -54,6 +55,7 @@ import org.kie.api.runtime.rule.FactHandle;
 import org.kie.api.runtime.rule.RuleUnit;
 
 import static java.util.Arrays.asList;
+
 import static org.drools.core.common.DefaultFactHandle.determineIdentityHashCode;
 import static org.drools.core.reteoo.PropertySpecificUtil.allSetButTraitBitMask;
 import static org.drools.core.reteoo.PropertySpecificUtil.calculatePositiveMask;
@@ -314,14 +316,14 @@ public class CursoredDataSource<T> implements InternalDataSource<T> {
 
         private final Map<RuleUnit.Identity, InternalFactHandle> childHandles = new HashMap<>();
 
-        private final int id;
+        private final long id;
         private long recency;
 
         private final int identityHashCode;
 
         private boolean negated = false;
 
-        DataSourceFactHandle( InternalDataSource<?> dataSource, int id, long recency, Object object ) {
+        DataSourceFactHandle( InternalDataSource<?> dataSource, long id, long recency, Object object ) {
             this.dataSource = dataSource;
             this.id = id;
             this.recency = recency;
@@ -342,7 +344,7 @@ public class CursoredDataSource<T> implements InternalDataSource<T> {
         }
 
         @Override
-        public int getId() {
+        public long getId() {
             return id;
         }
 
@@ -465,14 +467,14 @@ public class CursoredDataSource<T> implements InternalDataSource<T> {
         }
 
         @Override
-        public WorkingMemoryEntryPoint getEntryPoint() {
+        public EntryPointId getEntryPointId() {
             throw new UnsupportedOperationException( "org.drools.core.datasources.CursoredDataSource.DataSourceFactHandle.getEntryPoint -> TODO" );
 
         }
 
         @Override
-        public void setEntryPoint( WorkingMemoryEntryPoint ep ) {
-            throw new UnsupportedOperationException( "org.drools.core.datasources.CursoredDataSource.DataSourceFactHandle.setEntryPoint -> TODO" );
+        public WorkingMemoryEntryPoint getEntryPoint( InternalWorkingMemory wm ) {
+            throw new UnsupportedOperationException( "org.drools.core.datasources.CursoredDataSource.DataSourceFactHandle.getEntryPoint -> TODO" );
 
         }
 

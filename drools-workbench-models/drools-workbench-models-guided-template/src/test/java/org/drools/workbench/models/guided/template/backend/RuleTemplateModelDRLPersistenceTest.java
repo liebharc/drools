@@ -58,6 +58,48 @@ public class RuleTemplateModelDRLPersistenceTest {
     }
 
     @Test
+    public void testInWithIntegerValues() {
+        final TemplateModel m = new TemplateModel();
+        m.name = "t1";
+
+        final FactPattern p = new FactPattern("Person");
+        final SingleFieldConstraint con = new SingleFieldConstraint();
+        con.setFieldType(DataType.TYPE_NUMERIC_INTEGER);
+        con.setFieldName("field1");
+        con.setOperator("in");
+        con.setValue("$f1");
+        con.setConstraintValueType(SingleFieldConstraint.TYPE_TEMPLATE);
+        p.addConstraint(con);
+
+        m.addLhsItem(p);
+
+        m.addRow(new String[]{"1,2"});
+        m.addRow(new String[]{"\"3\",\"4\""});
+        m.addRow(new String[]{"(5,6)"});
+
+        final String expected = "rule \"t1_2\"" +
+                "dialect \"mvel\"\n" +
+                "when \n" +
+                "  Person( field1 in (5, 6) )" +
+                "then \n" +
+                "end" +
+                "rule \"t1_1\"" +
+                "dialect \"mvel\"\n" +
+                "when \n" +
+                "  Person( field1 in (3, 4) )" +
+                "then \n" +
+                "end" +
+                "rule \"t1_0\"" +
+                "dialect \"mvel\"\n" +
+                "when \n" +
+                "  Person( field1 in (1, 2) )" +
+                "then \n" +
+                "end";
+
+        checkMarshall(expected, m);
+    }
+
+    @Test
     public void testInWithSimpleSingleLiteralValue() {
         TemplateModel m = new TemplateModel();
         m.name = "t1";
@@ -107,6 +149,35 @@ public class RuleTemplateModelDRLPersistenceTest {
                 "dialect \"mvel\"\n" +
                 "when \n" +
                 "  Person( field1 in (\"ak1\",\"mk1\") )" +
+                "then \n" +
+                "end";
+
+        checkMarshall(expected,
+                      m);
+    }
+
+    @Test
+    public void testOnlyRemoveSurroundingBrackets() {
+        TemplateModel m = new TemplateModel();
+        m.name = "t1";
+
+        FactPattern p = new FactPattern("Person");
+        SingleFieldConstraint con = new SingleFieldConstraint();
+        con.setFieldType(DataType.TYPE_STRING);
+        con.setFieldName("field1");
+        con.setOperator("in");
+        con.setValue("$f1");
+        con.setConstraintValueType(SingleFieldConstraint.TYPE_TEMPLATE);
+        p.addConstraint(con);
+
+        m.addLhsItem(p);
+
+        m.addRow(new String[]{"\"John\", \"John (jr)\""});
+
+        String expected = "rule \"t1_0\"" +
+                "dialect \"mvel\"\n" +
+                "when \n" +
+                "  Person( field1 in (\"John\",\" John (jr)\") )" +
                 "then \n" +
                 "end";
 
@@ -4657,6 +4728,59 @@ public class RuleTemplateModelDRLPersistenceTest {
 
         checkMarshall(expected2 + expected1,
                       m1);
+    }
+
+    @Test
+    public void checkOneTemplateForDifferentFields() {
+        String templateKeyOne = "$template_key1";
+        String templateKeyTwo = "$template_key2";
+
+        FactPattern fp = new FactPattern("Smurf");
+        fp.setBoundName("p1");
+
+        SingleFieldConstraint sfc1 = new SingleFieldConstraint();
+        sfc1.setOperator("==");
+        sfc1.setFactType("Smurf");
+        sfc1.setFieldName("field1");
+        sfc1.setFieldType(DataType.TYPE_STRING);
+        sfc1.setConstraintValueType(SingleFieldConstraint.TYPE_TEMPLATE);
+        sfc1.setValue(templateKeyOne);
+
+        SingleFieldConstraint sfc2 = new SingleFieldConstraint();
+        sfc2.setOperator("==");
+        sfc2.setFactType("Smurf");
+        sfc2.setFieldName("field2");
+        sfc2.setFieldType(DataType.TYPE_STRING);
+        sfc2.setConstraintValueType(SingleFieldConstraint.TYPE_TEMPLATE);
+        sfc2.setValue(templateKeyOne);
+
+        SingleFieldConstraint sfc3 = new SingleFieldConstraint();
+        sfc3.setOperator("==");
+        sfc3.setFactType("Smurf");
+        sfc3.setFieldName("field3");
+        sfc3.setFieldType(DataType.TYPE_NUMERIC_INTEGER);
+        sfc3.setConstraintValueType(SingleFieldConstraint.TYPE_TEMPLATE);
+        sfc3.setValue(templateKeyTwo);
+
+        fp.addConstraint(sfc1);
+        fp.addConstraint(sfc2);
+        fp.addConstraint(sfc3);
+
+        //Test 1
+        TemplateModel model = new TemplateModel();
+        model.addLhsItem(fp);
+        model.name = "r1";
+
+        model.addRow(new String[]{"value one", "2"});
+
+        final String expected = "rule \"r1_0\"\n" +
+                "  dialect \"mvel\"\n" +
+                "  when\n" +
+                "    p1 : Smurf( field1 == \"value one\", field2 == \"value one\", field3 == 2 )\n" +
+                "  then\n" +
+                "end";
+
+        checkMarshall(expected, model);
     }
 
     private void assertEqualsIgnoreWhitespace(final String expected,

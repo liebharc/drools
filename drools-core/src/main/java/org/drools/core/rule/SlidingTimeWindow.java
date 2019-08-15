@@ -210,7 +210,7 @@ public class SlidingTimeWindow
                 JobContext jobctx = new BehaviorJobContext( nodeId, workingMemory, this, context);
                 JobHandle handle = clock.scheduleJob( job,
                                                       jobctx,
-                                                      new PointInTimeTrigger( nextTimestamp, null, null ) );
+                                                      PointInTimeTrigger.createPointInTimeTrigger( nextTimestamp, null ) );
                 jobctx.setJobHandle( handle );
             }
         }
@@ -309,7 +309,7 @@ public class SlidingTimeWindow
             SlidingTimeWindowContext slCtx = ( SlidingTimeWindowContext ) bjobCtx.behaviorContext;
 
             EventFactHandle handle = slCtx.peek();
-            outputCtx.writeInt( handle.getId() );
+            outputCtx.writeLong( handle.getId() );
         }
 
         public Timer serialize(JobContext jobCtx,
@@ -344,7 +344,7 @@ public class SlidingTimeWindow
 
         public void deserialize(MarshallerReaderContext inCtx,
                                 Timer _timer) throws ClassNotFoundException {
-            int i = _timer.getBehavior().getHandleId();
+            long i = _timer.getBehavior().getHandleId();
         }
     }
 
@@ -367,6 +367,9 @@ public class SlidingTimeWindow
             this.workingMemory = workingMemory;
             this.behavior = behavior;
             this.behaviorContext = behaviorContext;
+        }
+
+        public BehaviorJobContext() {
         }
 
         public JobHandle getJobHandle() {

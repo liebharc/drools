@@ -18,6 +18,8 @@
 
 package org.kie.dmn.feel.codegen.feel11;
 
+import java.time.Duration;
+import java.time.chrono.ChronoPeriod;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
@@ -28,18 +30,19 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.BooleanLiteralExpr;
 import com.github.javaparser.ast.expr.ConditionalExpr;
 import com.github.javaparser.ast.expr.EnclosedExpr;
 import com.github.javaparser.ast.expr.Expression;
-import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.NullLiteralExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import org.kie.dmn.feel.lang.CompositeType;
+import org.kie.dmn.feel.lang.SimpleType;
 import org.kie.dmn.feel.lang.Type;
 import org.kie.dmn.feel.lang.ast.ASTNode;
 import org.kie.dmn.feel.lang.ast.BaseNode;
@@ -50,6 +53,7 @@ import org.kie.dmn.feel.lang.ast.ContextNode;
 import org.kie.dmn.feel.lang.ast.DashNode;
 import org.kie.dmn.feel.lang.ast.FilterExpressionNode;
 import org.kie.dmn.feel.lang.ast.ForExpressionNode;
+import org.kie.dmn.feel.lang.ast.FormalParameterNode;
 import org.kie.dmn.feel.lang.ast.FunctionDefNode;
 import org.kie.dmn.feel.lang.ast.FunctionInvocationNode;
 import org.kie.dmn.feel.lang.ast.IfExpressionNode;
@@ -229,10 +233,23 @@ public class ASTCompilerVisitor implements Visitor<DirectCompilerResult> {
     public DirectCompilerResult visit(InstanceOfNode n) {
         DirectCompilerResult expr = n.getExpression().accept(this);
         DirectCompilerResult type = n.getType().accept(this);
-        return DirectCompilerResult.of(
-                Expressions.isInstanceOf(expr.getExpression(), type.getExpression()),
-                BuiltInType.BOOLEAN,
-                mergeFDs(expr, type));
+        switch (n.getType().getText()) {
+            case SimpleType.YEARS_AND_MONTHS_DURATION:
+                return DirectCompilerResult.of(Expressions.nativeInstanceOf(StaticJavaParser.parseClassOrInterfaceType(ChronoPeriod.class.getCanonicalName()),
+                                                                            expr.getExpression()),
+                                               BuiltInType.BOOLEAN,
+                                               mergeFDs(expr, type));
+            case SimpleType.DAYS_AND_TIME_DURATION:
+                return DirectCompilerResult.of(Expressions.nativeInstanceOf(StaticJavaParser.parseClassOrInterfaceType(Duration.class.getCanonicalName()),
+                                                                            expr.getExpression()),
+                                               BuiltInType.BOOLEAN,
+                                               mergeFDs(expr, type));
+            default:
+                return DirectCompilerResult.of(Expressions.isInstanceOf(expr.getExpression(), type.getExpression()),
+                                               BuiltInType.BOOLEAN,
+                                               mergeFDs(expr, type));
+        }
+
     }
 
     @Override
@@ -380,6 +397,16 @@ public class ASTCompilerVisitor implements Visitor<DirectCompilerResult> {
     }
 
     @Override
+    public DirectCompilerResult visit(FormalParameterNode n) {
+        DirectCompilerResult name = n.getName().accept(this);
+        DirectCompilerResult type = n.getType().accept(this);
+        return DirectCompilerResult.of(Expressions.formalParameter(name.getExpression(), type.getExpression()),
+                                       BuiltInType.UNKNOWN)
+                                   .withFD(name)
+                                   .withFD(type);
+    }
+
+    @Override
     public DirectCompilerResult visit(FunctionDefNode n) {
         MethodCallExpr list = Expressions.list();
         n.getFormalParameters()
@@ -391,8 +418,9 @@ public class ASTCompilerVisitor implements Visitor<DirectCompilerResult> {
         if (n.isExternal()) {
             List<String> paramNames =
                     n.getFormalParameters().stream()
-                            .map(BaseNode::getText)
-                            .collect(Collectors.toList());
+                     .map(FormalParameterNode::getName)
+                     .map(BaseNode::getText)
+                     .collect(Collectors.toList());
 
             return Functions.declaration(
                     n, list,

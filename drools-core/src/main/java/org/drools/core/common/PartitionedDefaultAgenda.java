@@ -32,13 +32,17 @@ public class PartitionedDefaultAgenda extends DefaultAgenda {
         this.partition = partition;
     }
 
+    public PartitionedDefaultAgenda() {
+        this.partition = 0;
+    }
+
     @Override
     protected void doRetract( PropagationContext ectx ) {
         InternalFactHandle factHandle = ectx.getFactHandle();
         ObjectTypeNode.retractLeftTuples( factHandle, ectx, workingMemory, partition );
         ObjectTypeNode.retractRightTuples( factHandle, ectx, workingMemory, partition );
         if ( isMasterPartition() && factHandle.isPendingRemoveFromStore() ) {
-            String epId = factHandle.getEntryPoint().getEntryPointId();
+            String epId = factHandle.getEntryPointName();
             ( (InternalWorkingMemoryEntryPoint) workingMemory.getEntryPoint( epId ) ).removeFromObjectStore( factHandle );
         }
     }

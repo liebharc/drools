@@ -623,17 +623,14 @@ public class RuleTemplateModelDRLPersistenceImpl
                               "  value.toUpperCase();\n" +
                               "}}");
         header.append("@code{\n" +
-                              " def makeValueList(value) {\n" +
+                              " def makeValueList(value, isNumeric) {\n" +
                               "    if(value.startsWith('\"') && value.endsWith('\"')) {\n" +
                               "      value = value.substring(1, value.length() - 1);\n" +
                               "    }\n" +
                               "	workingValue = value.trim();\n" +
-                              "	if ( workingValue.startsWith('(') ) {\n" +
+                              "	if ( workingValue.startsWith('(') && workingValue.endsWith(')') ) {\n" +
                               "		workingValue = workingValue.substring( 1 );\n" +
-                              "	}\n" +
-                              "	if ( workingValue.endsWith(')') ) {\n" +
-                              "		workingValue = workingValue.substring( 0," +
-                              "				workingValue.length() - 1 );\n" +
+                              "	  	workingValue = workingValue.substring( 0, workingValue.length() - 1 );\n" +
                               "	}\n" +
                               "	values = workingValue.split( ',' );\n" +
                               "	output = ' (';\n" +
@@ -645,7 +642,11 @@ public class RuleTemplateModelDRLPersistenceImpl
                               "		if ( v.endsWith( '\"' ) ) {\n" +
                               "   		v = v.substring( 0,v.length() - 1 );\n" +
                               "		}\n" +
-                              "		output+='\"'+v+'\", ';\n" +
+                              "	    if ( isNumeric ) {\n" +
+                              "         output+=v+', ';\n" +
+                              "	    } else {\n" +
+                              "	        output+='\"'+v+'\", ';\n" +
+                              "     }\n" +
                               "	}" +
                               "	output=output.substring(0,output.length()-2)+')';\n" +
                               "	output;\n" +

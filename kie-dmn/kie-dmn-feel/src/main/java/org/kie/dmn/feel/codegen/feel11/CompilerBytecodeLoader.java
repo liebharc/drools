@@ -24,6 +24,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
 
+import com.github.javaparser.StaticJavaParser;
 import org.drools.compiler.commons.jci.compilers.CompilationResult;
 import org.drools.compiler.commons.jci.compilers.JavaCompiler;
 import org.drools.compiler.commons.jci.compilers.JavaCompilerFactory;
@@ -42,6 +43,8 @@ import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.stmt.ReturnStmt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static com.github.javaparser.StaticJavaParser.parse;
 
 public class CompilerBytecodeLoader {
 
@@ -127,15 +130,16 @@ public class CompilerBytecodeLoader {
 
     public String getSourceForUnaryTest(String packageName, String className, String feelExpression, Expression theExpression, Set<FieldDeclaration> fieldDeclarations) {
         CompilationUnit cu = getCompilationUnit(CompiledFEELUnaryTests.class, "/TemplateCompiledFEELUnaryTests.java", packageName, className, feelExpression, theExpression, fieldDeclarations );
-        ClassOrInterfaceDeclaration classSource = cu.getClassByName( className ).get();
+        ClassOrInterfaceDeclaration classSource = cu.getClassByName( className ).orElseThrow(() -> new IllegalArgumentException("Cannot find class by name " + className));
         classSource.setStatic( true );
         return classSource.toString();
     }
 
     public <T> CompilationUnit getCompilationUnit(Class<T> clazz, String templateResourcePath, String cuPackage, String cuClass, String feelExpression, Expression theExpression, Set<FieldDeclaration> fieldDeclarations ) {
-        CompilationUnit cu = JavaParser.parse(CompilerBytecodeLoader.class.getResourceAsStream(templateResourcePath));
+        CompilationUnit cu = parse(CompilerBytecodeLoader.class.getResourceAsStream(templateResourcePath));
         cu.setPackageDeclaration(cuPackage);
-        ClassOrInterfaceDeclaration classSource = cu.getClassByName( templateResourcePath.substring( 1, templateResourcePath.length()-5 ) ).get();
+        final String className = templateResourcePath.substring( 1, templateResourcePath.length() - 5);
+        ClassOrInterfaceDeclaration classSource = cu.getClassByName(className).orElseThrow(() -> new IllegalArgumentException("Cannot find class by name " + className));
         classSource.setName( cuClass );
 
         List<MethodDeclaration> lookupMethodList = cu.getChildNodesByType(MethodDeclaration.class);
@@ -152,7 +156,7 @@ public class CompilerBytecodeLoader {
         ReturnStmt returnStmt = lookupReturnList.get(0);
         Expression expr;
         if (clazz.equals(CompiledFEELUnaryTests.class)) {
-            expr = new CastExpr(JavaParser.parseType("java.util.List"), new EnclosedExpr(theExpression));
+            expr = new CastExpr(StaticJavaParser.parseType("java.util.List"), new EnclosedExpr(theExpression));
         } else {
             expr = theExpression;
         }

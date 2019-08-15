@@ -16,9 +16,22 @@
 
 package org.kie.dmn.validation.dtanalysis.model;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import org.kie.dmn.feel.runtime.Range;
 import org.kie.dmn.feel.runtime.Range.RangeBoundary;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class Interval {
+
+    private static final Logger LOG = LoggerFactory.getLogger(Interval.class);
 
     public static final Comparable<?> POS_INF = new Comparable<Object>() {
 
@@ -104,27 +117,186 @@ public class Interval {
 
     @Override
     public boolean equals(Object obj) {
-        if (this == obj)
+        if (this == obj) {
             return true;
-        if (obj == null)
+        }
+        if (obj == null) {
             return false;
-        if (getClass() != obj.getClass())
+        }
+        if (getClass() != obj.getClass()) {
             return false;
+        }
         Interval other = (Interval) obj;
         if (lowerBound == null) {
-            if (other.lowerBound != null)
+            if (other.lowerBound != null) {
                 return false;
-        } else if (!lowerBound.equals(other.lowerBound))
+            }
+        } else if (!lowerBound.equals(other.lowerBound)) {
             return false;
+        }
         if (upperBound == null) {
-            if (other.upperBound != null)
+            if (other.upperBound != null) {
                 return false;
-        } else if (!upperBound.equals(other.upperBound))
+            }
+        } else if (!upperBound.equals(other.upperBound)) {
             return false;
+        }
         return true;
     }
 
     public boolean includes(Interval o) {
         return this.lowerBound.compareTo((Bound) o.lowerBound) <= 0 && this.upperBound.compareTo((Bound) o.upperBound) >= 0;
+    }
+
+    public boolean leftAdjOrOverlap(Interval o) {
+        boolean thisLeftLower = this.lowerBound.compareTo((Bound) o.lowerBound) <= 0;
+        boolean oRightHigher = o.upperBound.compareTo((Bound) this.upperBound) >= 0;
+        boolean chained = BoundValueComparator.compareValueDispatchingToInf(o.lowerBound, this.upperBound) < 0;
+        boolean adj = Bound.adOrOver(o.lowerBound, this.upperBound);
+        return thisLeftLower && oRightHigher && (chained || adj);
+    }
+
+    public static Range.RangeBoundary invertBoundary(Range.RangeBoundary b) {
+        if (b == RangeBoundary.OPEN) {
+            return RangeBoundary.CLOSED;
+        } else if (b == RangeBoundary.CLOSED) {
+            return RangeBoundary.OPEN;
+        } else {
+            throw new IllegalStateException("invertBoundary for: " + b);
+        }
+    }
+
+    public static List<Interval> flatten(List<Interval> intervals) {
+        List<Interval> results = new ArrayList<>();
+        LOG.debug("intervals {}", intervals);
+        List<Bound> bounds = intervals.stream().flatMap(i -> Stream.of(i.getLowerBound(), i.getUpperBound())).collect(Collectors.toList());
+        Collections.sort(bounds);
+        LOG.debug("bounds (sorted) {}", bounds);
+        Deque<Bound> stack = new ArrayDeque<Bound>();
+        Interval candidate = null;
+        for (Bound cur : bounds) {
+            if (stack.isEmpty() && !cur.isLowerBound()) {
+                throw new RuntimeException("Inconsistent sort of bounds.");
+            }
+            if (cur.isLowerBound()) {
+                if (candidate == null) {
+                    stack.push(cur);
+                } else {
+                    if (Bound.adOrOver(candidate.upperBound, cur)) {
+                        stack.push(candidate.lowerBound);
+                        candidate = null;
+                    } else {
+                        results.add(candidate);
+                        stack.push(cur);
+                    }
+                }
+            } else if (cur.isUpperBound()) {
+                Bound pop = stack.pop();
+                if (stack.isEmpty()) {
+                    candidate = Interval.newFromBounds(pop, cur);
+                }
+            } else {
+                throw new RuntimeException("Inconsistent value for bounds.");
+            }
+        }
+        if (candidate != null) {
+            results.add(candidate);
+        }
+        LOG.debug("results {}", results);
+        return results;
+    }
+
+    public static List<Interval> invertOverDomain(Interval interval, Interval domain) {
+        List<Interval> results = new ArrayList<>();
+        if (!domain.lowerBound.equals(interval.lowerBound)) {
+            Interval left = new Interval(domain.lowerBound.getBoundaryType(),
+                                         domain.lowerBound.getValue(),
+                                         interval.lowerBound.getValue(),
+                                         invertBoundary(interval.lowerBound.getBoundaryType()),
+                                         interval.rule,
+                                         interval.col);
+            results.add(left);
+        }
+        if (!domain.upperBound.equals(interval.upperBound)) {
+            Interval right = new Interval(invertBoundary(interval.upperBound.getBoundaryType()),
+                                          interval.upperBound.getValue(),
+                                          domain.upperBound.getValue(),
+                                          domain.upperBound.getBoundaryType(),
+                                          interval.rule,
+                                          interval.col);
+            results.add(right);
+        }
+        LOG.debug("results {}", results);
+        return results;
+    }
+
+    public String asHumanFriendly(Domain domain) {
+        if (lowerBound.getValue().equals(upperBound.getValue()) 
+                && lowerBound.getBoundaryType() == RangeBoundary.CLOSED 
+                && upperBound.getBoundaryType() == RangeBoundary.CLOSED) {
+            return Bound.boundValueToString(lowerBound.getValue());
+        } else if (domain.isDiscreteDomain()) {
+            List<?> dValues = domain.getDiscreteValues();
+            int posL = dValues.indexOf(lowerBound.getValue());
+            if (posL < dValues.size() - 1
+                && dValues.get(posL + 1).equals(upperBound.getValue())
+                    && lowerBound.getBoundaryType() == RangeBoundary.CLOSED 
+                    && upperBound.getBoundaryType() == RangeBoundary.OPEN) {
+                return Bound.boundValueToString(lowerBound.getValue());
+            } else if (posL == dValues.size() - 1
+                       && lowerBound.getBoundaryType() == RangeBoundary.CLOSED 
+                       && upperBound.getBoundaryType() == RangeBoundary.CLOSED) {
+                return Bound.boundValueToString(lowerBound.getValue());
+            } else {
+                return this.toString();
+            }
+        } else if (upperBound.equals(domain.getMax()) && upperBound.getBoundaryType() == RangeBoundary.CLOSED) {
+            if (lowerBound.getBoundaryType() == RangeBoundary.CLOSED) {
+                return ">=" + Bound.boundValueToString(lowerBound.getValue());
+            } else if (lowerBound.getBoundaryType() == RangeBoundary.OPEN) {
+                return ">" + Bound.boundValueToString(lowerBound.getValue());
+            }
+        } else if (lowerBound.equals(domain.getMin()) && lowerBound.getBoundaryType() == RangeBoundary.CLOSED) {
+            if (upperBound.getBoundaryType() == RangeBoundary.CLOSED) {
+                return "<=" + Bound.boundValueToString(upperBound.getValue());
+            } else if (upperBound.getBoundaryType() == RangeBoundary.OPEN) {
+                return "<" + Bound.boundValueToString(upperBound.getValue());
+            }
+        }
+        return this.toString();
+    }
+
+    public static List<Interval> normalizeDiscrete(List<Interval> intervals, List<Object> discreteValues) {
+        List<Interval> results = new ArrayList<>();
+        for (Interval curInterval : intervals) {
+            if (curInterval.lowerBound.getBoundaryType() == RangeBoundary.CLOSED && curInterval.upperBound.getBoundaryType() == RangeBoundary.OPEN) {
+                int lowerIdx = discreteValues.indexOf(curInterval.lowerBound.getValue());
+                int upperIdx = discreteValues.indexOf(curInterval.upperBound.getValue());
+                if (upperIdx - lowerIdx >= 2 && lowerIdx >= 0 && upperIdx >= 0) {
+                    Comparable<?> previousOfUpper = (Comparable<?>) discreteValues.get(upperIdx - 1);
+                    Interval newInterval = new Interval(RangeBoundary.CLOSED, curInterval.lowerBound.getValue(), previousOfUpper, RangeBoundary.CLOSED, 0, 0);
+                    results.add(newInterval);
+                } else {
+                    results.add(curInterval); // add as-is.
+                }
+            } else {
+                results.add(curInterval); // add as-is.
+            }
+        }
+        return results;
+    }
+
+    public static boolean adjOrOverlap(List<Interval> intervalsA, List<Interval> intervalsB) {
+        List<Interval> otherIntervals = new ArrayList<>(intervalsB);
+        for (Interval i : intervalsA) {
+            List<Interval> adjOrOverlapWithI = new ArrayList<>();
+            for (Interval o : otherIntervals) {
+                if (i.leftAdjOrOverlap(o) || o.leftAdjOrOverlap(i)) {
+                    adjOrOverlapWithI.add(o);
+                }
+            }
+            otherIntervals.removeAll(adjOrOverlapWithI);
+        }
+        return otherIntervals.isEmpty();
     }
 }

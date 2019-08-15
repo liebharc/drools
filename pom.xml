@@ -6,7 +6,7 @@
   <parent>
     <groupId>org.kie</groupId>
     <artifactId>kie-parent</artifactId>
-    <version>7.20.0-SNAPSHOT</version>
+    <version>7.26.0-SNAPSHOT</version>
     <!-- relativePath causes out-of-date problems on hudson slaves -->
     <!--<relativePath>../droolsjbpm-build-bootstrap/pom.xml</relativePath>-->
   </parent>
@@ -70,6 +70,7 @@
     <module>drools-examples-cdi</module>
     <module>drools-workbench-models</module>
     <module>drools-test-coverage</module>
+    <module>drools-scenario-simulation</module>
   </modules>
 
   <dependencyManagement>
@@ -114,6 +115,41 @@
       <modules>
         <module>drools-distribution</module>
       </modules>
+    </profile>
+
+    <profile>
+      <id>run-code-coverage</id>
+      <properties>
+        <jacoco.excludes>*Lexer</jacoco.excludes>
+
+        <!-- jacoco.exec.file is defined in kie-parent -->
+        <!--suppress UnresolvedMavenProperty -->
+        <jacoco.agent.line>-javaagent:${settings.localRepository}/org/jacoco/org.jacoco.agent/${version.jacoco.plugin}/org.jacoco.agent-${version.jacoco.plugin}-runtime.jar=destfile=${jacoco.exec.file},append=true,excludes=${jacoco.excludes}</jacoco.agent.line>
+        <surefire.argLine>
+          -Dfile.encoding=${project.build.sourceEncoding}
+          ${jacoco.agent.line}
+        </surefire.argLine>
+      </properties>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <artifactId>maven-surefire-plugin</artifactId>
+              <configuration>
+                <argLine>${surefire.argLine}</argLine>
+              </configuration>
+              <dependencies>
+                <dependency>
+                  <groupId>org.jacoco</groupId>
+                  <artifactId>org.jacoco.agent</artifactId>
+                  <version>${version.jacoco.plugin}</version>
+                  <classifier>runtime</classifier>
+                </dependency>
+              </dependencies>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
     </profile>
   </profiles>
 

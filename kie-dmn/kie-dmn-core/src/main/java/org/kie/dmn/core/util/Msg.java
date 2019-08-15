@@ -1,3 +1,19 @@
+/*
+ * Copyright 2017 Red Hat, Inc. and/or its affiliates.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.kie.dmn.core.util;
 
 import org.kie.dmn.api.core.DMNMessageType;
@@ -58,6 +74,9 @@ public final class Msg {
     public static final Message2 DUPLICATE_FORMAL_PARAM                              = new Message2( DMNMessageType.DUPLICATED_PARAM, "The formal parameter '%s' on function definition on node '%s' is duplicated" );
     public static final Message3 UNKNOWN_PARAMETER                                   = new Message3( DMNMessageType.PARAMETER_MISMATCH, "Unknown parameter '%s' invoking function '%s' on node '%s'" );
     public static final Message2 PARAMETER_COUNT_MISMATCH                            = new Message2( DMNMessageType.PARAMETER_MISMATCH, "Parameter count mismatch invoking function '%s' on node '%s'" );
+    public static final Message1 PARAMETER_COUNT_MISMATCH_DS                         = new Message1( DMNMessageType.PARAMETER_MISMATCH, "Parameter count mismatch invoking decision service function '%s' " );
+    public static final Message3 PARAMETER_TYPE_MISMATCH                             = new Message3( DMNMessageType.PARAMETER_MISMATCH, "Parameter '%s' is of type '%s' but the actual value '%s' is not an instance of that type; setting as null" );
+    public static final Message3 PARAMETER_TYPE_MISMATCH_DS                          = new Message3( DMNMessageType.PARAMETER_MISMATCH, "Decision Service parameter '%s' is of type '%s' but the actual value '%s' is not an instance of that type; setting as null" );
     public static final Message2 DUPLICATED_ITEM_COMPONENT                           = new Message2( DMNMessageType.DUPLICATED_ITEM_DEF, "Item Component '%s' is duplicated on Item Definition '%s'" );
     public static final Message1 DUPLICATED_ITEM_DEFINITION                          = new Message1( DMNMessageType.DUPLICATED_ITEM_DEF, "Item Definition '%s' is duplicated in the model" );
     public static final Message2 DUPLICATED_RELATION_COLUMN                          = new Message2( DMNMessageType.DUPLICATED_RELATION_COLUMN, "Relation column '%s' is duplicated on node '%s'" );
@@ -94,10 +113,13 @@ public final class Msg {
     public static final Message0 FAILED_NO_XML_SOURCE                                = new Message0( DMNMessageType.FAILED_VALIDATOR, "Schema validation not supported for in memory object. Please use the validate method with the file or reader signature." );
     public static final Message1 FAILED_XML_VALIDATION                               = new Message1( DMNMessageType.FAILED_XML_VALIDATION, "Failed XML validation of DMN file: %s" );
     public static final Message2 FUNC_DEF_INVALID_KIND                               = new Message2( DMNMessageType.INVALID_ATTRIBUTE_VALUE, "Invalid 'kind' value '%s' on function definition in node '%s'" );
-    public static final Message1 FUNC_DEF_PMML_NOT_SUPPORTED                         = new Message1( DMNMessageType.INVALID_ATTRIBUTE_VALUE, "PMML function definitions are not supported, node '%s'. Function evaluation will be skipped." );
-    public static final Message1 FUNC_DEF_BODY_NOT_CONTEXT                           = new Message1( DMNMessageType.INVALID_SYNTAX, "A non-FEEL function definition requires a context as it's body in node '%s'" );
+    public static final Message1 FUNC_DEF_PMML_NOT_SUPPORTED                         = new Message1( DMNMessageType.INVALID_ATTRIBUTE_VALUE, "No PMML runtime found to support PMML function definitions, node '%s'. Function evaluation will be skipped." );
+    public static final Message1 FUNC_DEF_BODY_NOT_CONTEXT                           = new Message1( DMNMessageType.INVALID_SYNTAX, "A non-FEEL function definition requires a context as its body in node '%s'" );
     public static final Message3 FUNC_DEF_COMPILATION_ERR                            = new Message3( DMNMessageType.ERR_COMPILING_FEEL, "Error compiling Java function '%s' on node '%s': %s" );
     public static final Message2 FUNC_DEF_MISSING_ENTRY                              = new Message2( DMNMessageType.INVALID_SYNTAX, "A Java function definition requires both the 'class' and the 'method signature' attributes. Invalid definition for function '%s' on node '%s'" );
+    public static final Message2 FUNC_DEF_PMML_MISSING_ENTRY                         = new Message2( DMNMessageType.INVALID_SYNTAX, "A PMML function definition requires both the 'document' and the 'model' attributes. Invalid definition for function '%s' on node '%s'" );
+    public static final Message1 FUNC_DEF_PMML_MISSING_MODEL_NAME                    = new Message1( DMNMessageType.INVALID_SYNTAX, "The PMML function definition did not provide 'model' attribute, while the PMML resource defines the following model names: %s" );
+    public static final Message1 FUNC_DEF_PMML_ERR_LOCATIONURI                       = new Message1( DMNMessageType.IMPORT_NOT_FOUND, "Unable to locate pmml model from locationURI '%s'");
     public static final Message2 ERROR_CHECKING_ALLOWED_VALUES                       = new Message2( DMNMessageType.FEEL_EVALUATION_ERROR, "Error checking allowed values for node '%s': %s" );
     public static final Message1 DTANALYSISRESULT                                    = new Message1( DMNMessageType.DECISION_TABLE_ANALYSIS, "Decision Table Analysis results: %s");
     public static final Message1 DTANALYSIS_EMPTY                                    = new Message1( DMNMessageType.DECISION_TABLE_ANALYSIS, "Decision Table Analysis of table '%s' finished with no messages to be reported.");
@@ -110,6 +132,13 @@ public final class Msg {
     public static final Message1 DTANALYSIS_OVERLAP_HITPOLICY_ANY                    = new Message1( DMNMessageType.DECISION_TABLE_OVERLAP_HITPOLICY_ANY   , "Overlap detected: %s. Any hit policy decision tables allows multiple rules to match, but they [must] all have the same output");
     public static final Message1 DTANALYSIS_HITPOLICY_FIRST                          = new Message1( DMNMessageType.DECISION_TABLE_HITPOLICY_FIRST, "Decision Table '%s' uses First hit policy. First hit policy decision tables are not considered good practice because they do not offer a clear overview of the decision logic (quoted from: Decision Model and Notation specification)");
     public static final Message2 DTANALYSIS_HITPOLICY_PRIORITY_MASKED_RULE           = new Message2( DMNMessageType.DECISION_TABLE_MASKED_RULE, "Rule %s is masked by rule: %s");
+    public static final Message2 DTANALYSIS_HITPOLICY_PRIORITY_MISLEADING_RULE       = new Message2( DMNMessageType.DECISION_TABLE_MISLEADING_RULE, "Rule %s is a misleading rule. It could be misleading over other rules, such as rule: %s");
+    public static final Message4 DTANALYSIS_SUBSUMPTION_RULE                         = new Message4( DMNMessageType.DECISION_TABLE_SUBSUMPTION_RULE, "Subsumption: Rule %s contains rule: %s; rules can be contracted, by keeping rule %s and erasing rule %s");
+    public static final Message2 DTANALYSIS_CONTRACTION_RULE                         = new Message2( DMNMessageType.DECISION_TABLE_CONTRACTION_RULE, "Contraction: Rules %s can be combined for contraction by joining on input %s");
+    public static final Message0 DTANALYSIS_1STNFVIOLATION_FIRST                     = new Message0( DMNMessageType.DECISION_TABLE_1STNFVIOLATION, "First Normal Form Violation: hit policy First is a violation of First Normal Form; consider changing for example to Priority");
+    public static final Message0 DTANALYSIS_1STNFVIOLATION_RULE_ORDER                = new Message0( DMNMessageType.DECISION_TABLE_1STNFVIOLATION, "First Normal Form Violation: hit policy Rule Order is a violation of First Normal Form; consider changing for example to Output Order or Collect");
+    public static final Message1 DTANALYSIS_1STNFVIOLATION_DUPLICATE_RULES           = new Message1( DMNMessageType.DECISION_TABLE_1STNFVIOLATION, "First Normal Form Violation: Rules %s are duplicates");
+    public static final Message2 DTANALYSIS_2NDNFVIOLATION                           = new Message2( DMNMessageType.DECISION_TABLE_2NDNFVIOLATION, "Second Normal Form Violation: Input %s is irrelevant for rules %s. Consider combining these rules over the irrelevant input");
 
     public static interface Message {
         String getMask();

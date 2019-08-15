@@ -74,16 +74,19 @@ public class FEELImpl
     public FEELImpl(ClassLoader cl, List<FEELProfile> profiles) {
         this.classLoader = cl;
         this.profiles = Collections.unmodifiableList(profiles);
-        ExecutionFrameImpl frame = new ExecutionFrameImpl(null);
+        ExecutionFrameImpl frame = null;
         Map<String, FEELFunction> functions = new HashMap<>();
         for (FEELProfile p : profiles) {
             for (FEELFunction f : p.getFEELFunctions()) {
+                if (frame == null) {
+                    frame = new ExecutionFrameImpl(null);
+                }
                 frame.setValue(f.getName(), f);
                 functions.put(f.getName(), f);
             }
         }
         doCompile = profiles.stream().anyMatch(DoCompileFEELProfile.class::isInstance);
-        customFrame = Optional.of(frame);
+        customFrame = Optional.ofNullable(frame);
         customFunctions = Collections.unmodifiableCollection(functions.values());
     }
 
@@ -119,7 +122,7 @@ public class FEELImpl
 
     @Override
     public ProcessedUnaryTest compileUnaryTests(String expressions, CompilerContext ctx) {
-        return new ProcessedUnaryTest(expressions, ctx);
+        return new ProcessedUnaryTest(expressions, ctx, profiles);
     }
 
     @Override
@@ -161,7 +164,7 @@ public class FEELImpl
     @Override
     public Object evaluate(CompiledExpression expr, EvaluationContext ctx) {
         CompiledFEELExpression e = (CompiledFEELExpression) expr;
-        return e.apply(newEvaluationContext(ctx.getListeners(), ctx.getAllValues()));
+        return e.apply(ctx.current());
     }
 
     /**
