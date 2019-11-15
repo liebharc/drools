@@ -25,6 +25,8 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import org.drools.scenariosimulation.api.model.Background;
+import org.drools.scenariosimulation.api.model.BackgroundData;
 import org.drools.scenariosimulation.api.model.ExpressionElement;
 import org.drools.scenariosimulation.api.model.ExpressionIdentifier;
 import org.drools.scenariosimulation.api.model.FactIdentifier;
@@ -33,11 +35,13 @@ import org.drools.scenariosimulation.api.model.FactMappingType;
 import org.drools.scenariosimulation.api.model.FactMappingValue;
 import org.drools.scenariosimulation.api.model.Scenario;
 import org.drools.scenariosimulation.api.model.ScenarioWithIndex;
-import org.drools.scenariosimulation.api.model.SimulationDescriptor;
+import org.drools.scenariosimulation.api.model.ScesimModelDescriptor;
+import org.drools.scenariosimulation.api.model.Settings;
 import org.drools.scenariosimulation.backend.expression.ExpressionEvaluator;
+import org.drools.scenariosimulation.backend.expression.ExpressionEvaluatorFactory;
 import org.drools.scenariosimulation.backend.runner.model.ResultWrapper;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioExpect;
-import org.drools.scenariosimulation.backend.runner.model.ScenarioGiven;
+import org.drools.scenariosimulation.backend.runner.model.InstanceGiven;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioResult;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioResultMetadata;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioRunnerData;
@@ -51,57 +55,101 @@ import static org.drools.scenariosimulation.backend.runner.model.ResultWrapper.c
 
 public abstract class AbstractRunnerHelper {
 
-    public void run(KieContainer kieContainer, SimulationDescriptor simulationDescriptor, ScenarioWithIndex scenarioWithIndex, ExpressionEvaluator expressionEvaluator, ClassLoader classLoader, ScenarioRunnerData scenarioRunnerData) {
+    public void run(KieContainer kieContainer,
+                    ScesimModelDescriptor scesimModelDescriptor,
+                    ScenarioWithIndex scenarioWithIndex,
+                    ExpressionEvaluatorFactory expressionEvaluatorFactory,
+                    ClassLoader classLoader,
+                    ScenarioRunnerData scenarioRunnerData,
+                    Settings settings,
+                    Background background) {
 
-        Scenario scenario = scenarioWithIndex.getScenario();
+        Scenario scenario = scenarioWithIndex.getScesimData();
 
-        extractGivenValues(simulationDescriptor, scenario.getUnmodifiableFactMappingValues(), classLoader, expressionEvaluator)
+        extractBackgroundValues(background,
+                                classLoader,
+                                expressionEvaluatorFactory)
+                .forEach(scenarioRunnerData::addBackground);
+
+        extractGivenValues(scesimModelDescriptor,
+                           scenario.getUnmodifiableFactMappingValues(),
+                           classLoader,
+                           expressionEvaluatorFactory)
                 .forEach(scenarioRunnerData::addGiven);
 
         extractExpectedValues(scenario.getUnmodifiableFactMappingValues()).forEach(scenarioRunnerData::addExpect);
 
         Map<String, Object> requestContext = executeScenario(kieContainer,
                                                              scenarioRunnerData,
-                                                             expressionEvaluator,
-                                                             simulationDescriptor);
+                                                             expressionEvaluatorFactory,
+                                                             scesimModelDescriptor, settings);
 
         scenarioRunnerData.setMetadata(extractResultMetadata(requestContext, scenarioWithIndex));
 
-        verifyConditions(simulationDescriptor,
+        verifyConditions(scesimModelDescriptor,
                          scenarioRunnerData,
-                         expressionEvaluator,
+                         expressionEvaluatorFactory,
                          requestContext);
 
         validateAssertion(scenarioRunnerData.getResults(),
                           scenario);
     }
 
-    protected List<ScenarioGiven> extractGivenValues(SimulationDescriptor simulationDescriptor,
+    protected List<InstanceGiven> extractBackgroundValues(Background background,
+                                                          ClassLoader classLoader,
+                                                          ExpressionEvaluatorFactory expressionEvaluatorFactory) {
+        List<InstanceGiven> backgrounds = new ArrayList<>();
+        for (BackgroundData row : background.getUnmodifiableData()) {
+            try {
+                List<InstanceGiven> givens = extractGivenValues(background.getScesimModelDescriptor(),
+                                                                row.getUnmodifiableFactMappingValues(),
+                                                                classLoader,
+                                                                expressionEvaluatorFactory);
+                backgrounds.addAll(givens);
+            } catch (ScenarioException e) {
+                throw new ScenarioException("Error in BACKGROUND data");
+            }
+        }
+        return backgrounds;
+    }
+
+    protected List<InstanceGiven> extractGivenValues(ScesimModelDescriptor scesimModelDescriptor,
                                                      List<FactMappingValue> factMappingValues,
                                                      ClassLoader classLoader,
-                                                     ExpressionEvaluator expressionEvaluator) {
-        List<ScenarioGiven> scenarioGiven = new ArrayList<>();
+                                                     ExpressionEvaluatorFactory expressionEvaluatorFactory) {
+        List<InstanceGiven> instanceGiven = new ArrayList<>();
 
         Map<FactIdentifier, List<FactMappingValue>> groupByFactIdentifier =
                 groupByFactIdentifierAndFilter(factMappingValues, FactMappingType.GIVEN);
 
+        boolean hasError = false;
+
         for (Map.Entry<FactIdentifier, List<FactMappingValue>> entry : groupByFactIdentifier.entrySet()) {
 
-            FactIdentifier factIdentifier = entry.getKey();
+            try {
 
-            // for each fact, create a map of path to fields and values to set
-            Map<List<String>, Object> paramsForBean = getParamsForBean(simulationDescriptor,
-                                                                       factIdentifier,
-                                                                       entry.getValue(),
-                                                                       expressionEvaluator);
+                FactIdentifier factIdentifier = entry.getKey();
 
-            Object bean = getDirectMapping(paramsForBean)
-                    .orElseGet(() -> createObject(factIdentifier.getClassName(), paramsForBean, classLoader));
+                // for each fact, create a map of path to fields and values to set
+                Map<List<String>, Object> paramsForBean = getParamsForBean(scesimModelDescriptor,
+                                                                           factIdentifier,
+                                                                           entry.getValue(),
+                                                                           expressionEvaluatorFactory);
 
-            scenarioGiven.add(new ScenarioGiven(factIdentifier, bean));
+                Object bean = getDirectMapping(paramsForBean)
+                        .orElseGet(() -> createObject(factIdentifier.getClassName(), paramsForBean, classLoader));
+
+                instanceGiven.add(new InstanceGiven(factIdentifier, bean));
+            } catch (Exception e) {
+                hasError = true;
+            }
         }
 
-        return scenarioGiven;
+        if (hasError) {
+            throw new ScenarioException("Error in GIVEN data");
+        }
+
+        return instanceGiven;
     }
 
     protected ResultWrapper<Object> getDirectMapping(Map<List<String>, Object> params) {
@@ -161,20 +209,24 @@ public abstract class AbstractRunnerHelper {
         return groupByFactIdentifier;
     }
 
-    protected Map<List<String>, Object> getParamsForBean(SimulationDescriptor simulationDescriptor,
+    protected Map<List<String>, Object> getParamsForBean(ScesimModelDescriptor scesimModelDescriptor,
                                                          FactIdentifier factIdentifier,
                                                          List<FactMappingValue> factMappingValues,
-                                                         ExpressionEvaluator expressionEvaluator) {
+                                                         ExpressionEvaluatorFactory expressionEvaluatorFactory) {
         Map<List<String>, Object> paramsForBean = new HashMap<>();
+
+        boolean hasError = false;
 
         for (FactMappingValue factMappingValue : factMappingValues) {
             ExpressionIdentifier expressionIdentifier = factMappingValue.getExpressionIdentifier();
 
-            FactMapping factMapping = simulationDescriptor.getFactMapping(factIdentifier, expressionIdentifier)
+            FactMapping factMapping = scesimModelDescriptor.getFactMapping(factIdentifier, expressionIdentifier)
                     .orElseThrow(() -> new IllegalStateException("Wrong expression, this should not happen"));
 
             List<String> pathToField = factMapping.getExpressionElementsWithoutClass().stream()
                     .map(ExpressionElement::getStep).collect(toList());
+
+            ExpressionEvaluator expressionEvaluator = expressionEvaluatorFactory.getOrCreate(factMappingValue);
 
             try {
                 Object value = expressionEvaluator.evaluateLiteralExpression(factMapping.getClassName(),
@@ -183,8 +235,12 @@ public abstract class AbstractRunnerHelper {
                 paramsForBean.put(pathToField, value);
             } catch (RuntimeException e) {
                 factMappingValue.setExceptionMessage(e.getMessage());
-                throw new ScenarioException(e.getMessage(), e);
+                hasError = true;
             }
+        }
+
+        if (hasError) {
+            throw new ScenarioException("Error in one or more input values");
         }
 
         return paramsForBean;
@@ -195,6 +251,7 @@ public abstract class AbstractRunnerHelper {
         for (ScenarioResult scenarioResult : scenarioResults) {
             if (!scenarioResult.getResult()) {
                 scenarioFailed = true;
+                break;
             }
         }
 
@@ -204,20 +261,27 @@ public abstract class AbstractRunnerHelper {
     }
 
     protected ScenarioResult fillResult(FactMappingValue expectedResult,
-                                        FactIdentifier factIdentifier,
                                         Supplier<ResultWrapper<?>> resultSupplier,
                                         ExpressionEvaluator expressionEvaluator) {
         ResultWrapper<?> resultValue = resultSupplier.get();
 
-        if (!resultValue.isSatisfied() && resultValue.getErrorMessage().isPresent()) {
-            expectedResult.setExceptionMessage(resultValue.getErrorMessage().get());
-        } else if (!resultValue.isSatisfied()) {
-            expectedResult.setErrorValue(expressionEvaluator.fromObjectToExpression(resultValue.getResult()));
-        } else {
+        if (resultValue.isSatisfied()) {
+            // result is satisfied so clean up previous error state
             expectedResult.resetStatus();
+        } else if (resultValue.getErrorMessage().isPresent()) {
+            // propagate error message
+            expectedResult.setExceptionMessage(resultValue.getErrorMessage().get());
+        } else {
+            try {
+                // set actual as proposed value
+                expectedResult.setErrorValue(expressionEvaluator.fromObjectToExpression(resultValue.getResult()));
+            } catch (Exception e) {
+                // otherwise generic error message
+                expectedResult.setExceptionMessage(e.getMessage());
+            }
         }
 
-        return new ScenarioResult(factIdentifier, expectedResult, resultValue.getResult()).setResult(resultValue.isSatisfied());
+        return new ScenarioResult(expectedResult, resultValue.getResult()).setResult(resultValue.isSatisfied());
     }
 
     protected ResultWrapper getResultWrapper(String className,
@@ -238,7 +302,7 @@ public abstract class AbstractRunnerHelper {
             }
         } catch (Exception e) {
             expectedResult.setExceptionMessage(e.getMessage());
-            throw new ScenarioException(e.getMessage(), e);
+            return createErrorResultWithErrorMessage(e.getMessage());
         }
     }
 
@@ -247,12 +311,13 @@ public abstract class AbstractRunnerHelper {
 
     protected abstract Map<String, Object> executeScenario(KieContainer kieContainer,
                                                            ScenarioRunnerData scenarioRunnerData,
-                                                           ExpressionEvaluator expressionEvaluator,
-                                                           SimulationDescriptor simulationDescriptor);
+                                                           ExpressionEvaluatorFactory expressionEvaluatorFactory,
+                                                           ScesimModelDescriptor scesimModelDescriptor,
+                                                           Settings settings);
 
-    protected abstract void verifyConditions(SimulationDescriptor simulationDescriptor,
+    protected abstract void verifyConditions(ScesimModelDescriptor scesimModelDescriptor,
                                              ScenarioRunnerData scenarioRunnerData,
-                                             ExpressionEvaluator expressionEvaluator,
+                                             ExpressionEvaluatorFactory expressionEvaluatorFactory,
                                              Map<String, Object> requestContext);
 
     protected abstract Object createObject(String className,

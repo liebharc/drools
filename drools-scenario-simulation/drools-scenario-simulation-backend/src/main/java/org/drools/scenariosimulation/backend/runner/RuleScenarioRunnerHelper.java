@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 import org.drools.scenariosimulation.api.model.ExpressionElement;
@@ -29,13 +30,15 @@ import org.drools.scenariosimulation.api.model.FactIdentifier;
 import org.drools.scenariosimulation.api.model.FactMapping;
 import org.drools.scenariosimulation.api.model.FactMappingValue;
 import org.drools.scenariosimulation.api.model.ScenarioWithIndex;
-import org.drools.scenariosimulation.api.model.SimulationDescriptor;
+import org.drools.scenariosimulation.api.model.ScesimModelDescriptor;
+import org.drools.scenariosimulation.api.model.Settings;
 import org.drools.scenariosimulation.backend.expression.ExpressionEvaluator;
+import org.drools.scenariosimulation.backend.expression.ExpressionEvaluatorFactory;
 import org.drools.scenariosimulation.backend.fluent.CoverageAgendaListener;
 import org.drools.scenariosimulation.backend.fluent.RuleScenarioExecutableBuilder;
 import org.drools.scenariosimulation.backend.runner.model.ResultWrapper;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioExpect;
-import org.drools.scenariosimulation.backend.runner.model.ScenarioGiven;
+import org.drools.scenariosimulation.backend.runner.model.InstanceGiven;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioResult;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioResultMetadata;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioRunnerData;
@@ -55,30 +58,31 @@ public class RuleScenarioRunnerHelper extends AbstractRunnerHelper {
     @Override
     protected Map<String, Object> executeScenario(KieContainer kieContainer,
                                                   ScenarioRunnerData scenarioRunnerData,
-                                                  ExpressionEvaluator expressionEvaluator,
-                                                  SimulationDescriptor simulationDescriptor) {
-        if (!Type.RULE.equals(simulationDescriptor.getType())) {
+                                                  ExpressionEvaluatorFactory expressionEvaluatorFactory,
+                                                  ScesimModelDescriptor scesimModelDescriptor,
+                                                  Settings settings) {
+        if (!Type.RULE.equals(settings.getType())) {
             throw new ScenarioException("Impossible to run a not-RULE simulation with RULE runner");
         }
-        RuleScenarioExecutableBuilder ruleScenarioExecutableBuilder = createBuilder(kieContainer,
-                                                                                    simulationDescriptor.getDmoSession(),
-                                                                                    simulationDescriptor.isStateless());
+        RuleScenarioExecutableBuilder ruleScenarioExecutableBuilder = createBuilderWrapper(kieContainer, settings);
 
-        if (simulationDescriptor.getRuleFlowGroup() != null) {
-            ruleScenarioExecutableBuilder.setActiveRuleFlowGroup(simulationDescriptor.getRuleFlowGroup());
+        if (settings.getRuleFlowGroup() != null) {
+            ruleScenarioExecutableBuilder.setActiveRuleFlowGroup(settings.getRuleFlowGroup());
         }
 
-        scenarioRunnerData.getGivens().stream().map(ScenarioGiven::getValue).forEach(ruleScenarioExecutableBuilder::insert);
+        loadInputData(scenarioRunnerData.getBackgrounds(), ruleScenarioExecutableBuilder);
+        loadInputData(scenarioRunnerData.getGivens(), ruleScenarioExecutableBuilder);
         // all new facts should be verified internally to the working memory
         scenarioRunnerData.getExpects().stream()
                 .filter(ScenarioExpect::isNewFact)
                 .flatMap(output -> output.getExpectedResult().stream()
-                        .map(factMappingValue -> new ScenarioResult(output.getFactIdentifier(), factMappingValue)))
+                        .map(ScenarioResult::new))
                 .forEach(scenarioResult -> {
                     Class<?> clazz = ScenarioBeanUtil.loadClass(scenarioResult.getFactIdentifier().getClassName(), kieContainer.getClassLoader());
+                    ExpressionEvaluator expressionEvaluator = expressionEvaluatorFactory.getOrCreate(scenarioResult.getFactMappingValue());
                     scenarioRunnerData.addResult(scenarioResult);
                     ruleScenarioExecutableBuilder.addInternalCondition(clazz,
-                                                                       createExtractorFunction(expressionEvaluator, scenarioResult.getFactMappingValue(), simulationDescriptor),
+                                                                       createExtractorFunction(expressionEvaluator, scenarioResult.getFactMappingValue(), scesimModelDescriptor),
                                                                        scenarioResult);
                 });
 
@@ -90,43 +94,41 @@ public class RuleScenarioRunnerHelper extends AbstractRunnerHelper {
     protected ScenarioResultMetadata extractResultMetadata(Map<String, Object> requestContext, ScenarioWithIndex scenarioWithIndex) {
         CoverageAgendaListener coverageAgendaListener = (CoverageAgendaListener) requestContext.get(COVERAGE_LISTENER);
         Map<String, Integer> ruleExecuted = coverageAgendaListener.getRuleExecuted();
-
         Set<String> availableRules = (Set<String>) requestContext.get(RULES_AVAILABLE);
-
         ScenarioResultMetadata scenarioResultMetadata = new ScenarioResultMetadata(scenarioWithIndex);
-
         scenarioResultMetadata.addAllAvailable(availableRules);
         scenarioResultMetadata.addAllExecuted(ruleExecuted);
-
+        final AtomicInteger counter = new AtomicInteger(0);
+        coverageAgendaListener
+                .getAuditsMessages().forEach(auditMessage -> scenarioResultMetadata.addAuditMessage(counter.addAndGet(1), auditMessage, "INFO"));
         return scenarioResultMetadata;
     }
 
     @Override
-    protected void verifyConditions(SimulationDescriptor simulationDescriptor,
+    protected void verifyConditions(ScesimModelDescriptor scesimModelDescriptor,
                                     ScenarioRunnerData scenarioRunnerData,
-                                    ExpressionEvaluator expressionEvaluator,
+                                    ExpressionEvaluatorFactory expressionEvaluatorFactory,
                                     Map<String, Object> requestContext) {
 
-        for (ScenarioGiven input : scenarioRunnerData.getGivens()) {
+        for (InstanceGiven input : scenarioRunnerData.getGivens()) {
             FactIdentifier factIdentifier = input.getFactIdentifier();
             List<ScenarioExpect> assertionOnFact = scenarioRunnerData.getExpects().stream()
                     .filter(elem -> !elem.isNewFact())
                     .filter(elem -> Objects.equals(elem.getFactIdentifier(), factIdentifier)).collect(toList());
 
             // check if this fact has something to check
-            if (assertionOnFact.size() < 1) {
+            if (assertionOnFact.isEmpty()) {
                 continue;
             }
 
-            getScenarioResultsFromGivenFacts(simulationDescriptor, assertionOnFact, input, expressionEvaluator).forEach(scenarioRunnerData::addResult);
+            getScenarioResultsFromGivenFacts(scesimModelDescriptor, assertionOnFact, input, expressionEvaluatorFactory).forEach(scenarioRunnerData::addResult);
         }
     }
 
-    protected List<ScenarioResult> getScenarioResultsFromGivenFacts(SimulationDescriptor simulationDescriptor,
+    protected List<ScenarioResult> getScenarioResultsFromGivenFacts(ScesimModelDescriptor scesimModelDescriptor,
                                                                     List<ScenarioExpect> scenarioOutputsPerFact,
-                                                                    ScenarioGiven input,
-                                                                    ExpressionEvaluator expressionEvaluator) {
-        FactIdentifier factIdentifier = input.getFactIdentifier();
+                                                                    InstanceGiven input,
+                                                                    ExpressionEvaluatorFactory expressionEvaluatorFactory) {
         Object factInstance = input.getValue();
         List<ScenarioResult> scenarioResults = new ArrayList<>();
         for (ScenarioExpect scenarioExpect : scenarioOutputsPerFact) {
@@ -136,9 +138,10 @@ public class RuleScenarioRunnerHelper extends AbstractRunnerHelper {
 
             for (FactMappingValue expectedResult : scenarioExpect.getExpectedResult()) {
 
+                ExpressionEvaluator expressionEvaluator = expressionEvaluatorFactory.getOrCreate(expectedResult);
+
                 ScenarioResult scenarioResult = fillResult(expectedResult,
-                                                           factIdentifier,
-                                                           () -> createExtractorFunction(expressionEvaluator, expectedResult, simulationDescriptor)
+                                                           () -> createExtractorFunction(expressionEvaluator, expectedResult, scesimModelDescriptor)
                                                                    .apply(factInstance),
                                                            expressionEvaluator);
 
@@ -150,12 +153,12 @@ public class RuleScenarioRunnerHelper extends AbstractRunnerHelper {
 
     protected Function<Object, ResultWrapper> createExtractorFunction(ExpressionEvaluator expressionEvaluator,
                                                                       FactMappingValue expectedResult,
-                                                                      SimulationDescriptor simulationDescriptor) {
+                                                                      ScesimModelDescriptor scesimModelDescriptor) {
         return objectToCheck -> {
 
             ExpressionIdentifier expressionIdentifier = expectedResult.getExpressionIdentifier();
 
-            FactMapping factMapping = simulationDescriptor.getFactMapping(expectedResult.getFactIdentifier(), expressionIdentifier)
+            FactMapping factMapping = scesimModelDescriptor.getFactMapping(expectedResult.getFactIdentifier(), expressionIdentifier)
                     .orElseThrow(() -> new IllegalStateException("Wrong expression, this should not happen"));
 
             List<String> pathToValue = factMapping.getExpressionElementsWithoutClass().stream().map(ExpressionElement::getStep).collect(toList());
@@ -172,8 +175,20 @@ public class RuleScenarioRunnerHelper extends AbstractRunnerHelper {
         };
     }
 
+    protected void loadInputData(List<InstanceGiven> dataToLoad, RuleScenarioExecutableBuilder executableBuilder) {
+        for (InstanceGiven instanceGiven : dataToLoad) {
+            executableBuilder.insert(instanceGiven.getValue());
+        }
+    }
+
     @Override
-    public Object createObject(String className, Map<List<String>, Object> params, ClassLoader classLoader) {
+    protected Object createObject(String className, Map<List<String>, Object> params, ClassLoader classLoader) {
         return fillBean(className, params, classLoader);
+    }
+
+    protected RuleScenarioExecutableBuilder createBuilderWrapper(KieContainer kieContainer, Settings settings) {
+        return createBuilder(kieContainer,
+                             settings.getDmoSession(),
+                             settings.isStateless());
     }
 }

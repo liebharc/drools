@@ -19,6 +19,7 @@ package org.drools.scenariosimulation.backend.runner;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.drools.scenariosimulation.api.model.ExpressionElement;
 import org.drools.scenariosimulation.api.model.ExpressionIdentifier;
@@ -27,12 +28,14 @@ import org.drools.scenariosimulation.api.model.FactMapping;
 import org.drools.scenariosimulation.api.model.FactMappingValue;
 import org.drools.scenariosimulation.api.model.ScenarioSimulationModel;
 import org.drools.scenariosimulation.api.model.ScenarioWithIndex;
-import org.drools.scenariosimulation.api.model.SimulationDescriptor;
+import org.drools.scenariosimulation.api.model.ScesimModelDescriptor;
+import org.drools.scenariosimulation.api.model.Settings;
 import org.drools.scenariosimulation.backend.expression.ExpressionEvaluator;
+import org.drools.scenariosimulation.backend.expression.ExpressionEvaluatorFactory;
 import org.drools.scenariosimulation.backend.fluent.DMNScenarioExecutableBuilder;
 import org.drools.scenariosimulation.backend.runner.model.ResultWrapper;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioExpect;
-import org.drools.scenariosimulation.backend.runner.model.ScenarioGiven;
+import org.drools.scenariosimulation.backend.runner.model.InstanceGiven;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioResult;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioResultMetadata;
 import org.drools.scenariosimulation.backend.runner.model.ScenarioRunnerData;
@@ -50,18 +53,25 @@ public class DMNScenarioRunnerHelper extends AbstractRunnerHelper {
     @Override
     protected Map<String, Object> executeScenario(KieContainer kieContainer,
                                                   ScenarioRunnerData scenarioRunnerData,
-                                                  ExpressionEvaluator expressionEvaluator,
-                                                  SimulationDescriptor simulationDescriptor) {
-        if (!ScenarioSimulationModel.Type.DMN.equals(simulationDescriptor.getType())) {
+                                                  ExpressionEvaluatorFactory expressionEvaluatorFactory,
+                                                  ScesimModelDescriptor scesimModelDescriptor,
+                                                  Settings settings) {
+        if (!ScenarioSimulationModel.Type.DMN.equals(settings.getType())) {
             throw new ScenarioException("Impossible to run a not-DMN simulation with DMN runner");
         }
-        DMNScenarioExecutableBuilder executableBuilder = DMNScenarioExecutableBuilder.createBuilder(kieContainer);
-        executableBuilder.setActiveModel(simulationDescriptor.getDmnFilePath());
-        for (ScenarioGiven input : scenarioRunnerData.getGivens()) {
-            executableBuilder.setValue(input.getFactIdentifier().getName(), input.getValue());
-        }
+        DMNScenarioExecutableBuilder executableBuilder = createBuilderWrapper(kieContainer);
+        executableBuilder.setActiveModel(settings.getDmnFilePath());
+
+        loadInputData(scenarioRunnerData.getBackgrounds(), executableBuilder);
+        loadInputData(scenarioRunnerData.getGivens(), executableBuilder);
 
         return executableBuilder.run().getOutputs();
+    }
+
+    protected void loadInputData(List<InstanceGiven> dataToLoad, DMNScenarioExecutableBuilder executableBuilder) {
+        for (InstanceGiven input : dataToLoad) {
+            executableBuilder.setValue(input.getFactIdentifier().getName(), input.getValue());
+        }
     }
 
     @Override
@@ -71,24 +81,27 @@ public class DMNScenarioRunnerHelper extends AbstractRunnerHelper {
         DMNResult dmnResult = (DMNResult) requestContext.get(DMNScenarioExecutableBuilder.DMN_RESULT);
 
         ScenarioResultMetadata scenarioResultMetadata = new ScenarioResultMetadata(scenarioWithIndex);
-
         for (DecisionNode decision : dmnModel.getDecisions()) {
             scenarioResultMetadata.addAvailable(decision.getName());
         }
-
+        final AtomicInteger counter = new AtomicInteger(0);
         for (DMNDecisionResult decisionResult : dmnResult.getDecisionResults()) {
             if (SUCCEEDED.equals(decisionResult.getEvaluationStatus())) {
                 scenarioResultMetadata.addExecuted(decisionResult.getDecisionName());
             }
+            if (decisionResult.getMessages().isEmpty()) {
+                scenarioResultMetadata.addAuditMessage(counter.addAndGet(1), decisionResult.getDecisionName(), decisionResult.getEvaluationStatus().name());
+            } else {
+                decisionResult.getMessages().forEach(dmnMessage -> scenarioResultMetadata.addAuditMessage(counter.addAndGet(1), dmnMessage.getText(), dmnMessage.getLevel().name()));
+            }
         }
-
         return scenarioResultMetadata;
     }
 
     @Override
-    protected void verifyConditions(SimulationDescriptor simulationDescriptor,
+    protected void verifyConditions(ScesimModelDescriptor scesimModelDescriptor,
                                     ScenarioRunnerData scenarioRunnerData,
-                                    ExpressionEvaluator expressionEvaluator,
+                                    ExpressionEvaluatorFactory expressionEvaluatorFactory,
                                     Map<String, Object> requestContext) {
         DMNResult dmnResult = (DMNResult) requestContext.get(DMNScenarioExecutableBuilder.DMN_RESULT);
 
@@ -103,11 +116,12 @@ public class DMNScenarioRunnerHelper extends AbstractRunnerHelper {
             for (FactMappingValue expectedResult : output.getExpectedResult()) {
                 ExpressionIdentifier expressionIdentifier = expectedResult.getExpressionIdentifier();
 
-                FactMapping factMapping = simulationDescriptor.getFactMapping(factIdentifier, expressionIdentifier)
+                FactMapping factMapping = scesimModelDescriptor.getFactMapping(factIdentifier, expressionIdentifier)
                         .orElseThrow(() -> new IllegalStateException("Wrong expression, this should not happen"));
 
+                ExpressionEvaluator expressionEvaluator = expressionEvaluatorFactory.getOrCreate(expectedResult);
+
                 ScenarioResult scenarioResult = fillResult(expectedResult,
-                                                           factIdentifier,
                                                            () -> getSingleFactValueResult(factMapping, expectedResult, decisionResult, expressionEvaluator),
                                                            expressionEvaluator);
 
@@ -171,5 +185,9 @@ public class DMNScenarioRunnerHelper extends AbstractRunnerHelper {
             targetMap.put(lastStep, listObjectEntry.getValue());
         }
         return toReturn;
+    }
+
+    protected DMNScenarioExecutableBuilder createBuilderWrapper(KieContainer kieContainer) {
+        return DMNScenarioExecutableBuilder.createBuilder(kieContainer);
     }
 }

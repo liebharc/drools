@@ -24,18 +24,22 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
+import org.drools.scenariosimulation.api.utils.ScenarioSimulationSharedUtils;
 import org.kie.dmn.api.feel.runtime.events.FEELEvent;
 import org.kie.dmn.core.compiler.profiles.ExtendedDMNProfile;
 import org.kie.dmn.feel.FEEL;
 import org.kie.dmn.feel.lang.EvaluationContext;
+import org.kie.dmn.feel.lang.Type;
 import org.kie.dmn.feel.lang.impl.EvaluationContextImpl;
 import org.kie.dmn.feel.lang.impl.FEELEventListenersManager;
+import org.kie.dmn.feel.lang.types.BuiltInType;
 import org.kie.dmn.feel.runtime.UnaryTest;
 import org.kie.dmn.feel.runtime.events.SyntaxErrorEvent;
 import org.kie.dmn.feel.runtime.functions.FEELFnResult;
 import org.kie.dmn.feel.runtime.functions.extended.CodeFunction;
 
 import static java.util.Collections.singletonList;
+import static org.drools.scenariosimulation.api.utils.ConstantsHolder.UNARY_PARAMETER_IDENTIFIER;
 import static org.kie.dmn.api.feel.runtime.events.FEELEvent.Severity.ERROR;
 
 public class DMNFeelExpressionEvaluator extends AbstractExpressionEvaluator {
@@ -57,12 +61,12 @@ public class DMNFeelExpressionEvaluator extends AbstractExpressionEvaluator {
     }
 
     @Override
-    public Object evaluateLiteralExpression(String className, List<String> genericClasses, Object raw) {
-        if (!(raw instanceof String)) {
-            return raw;
+    public Object evaluateLiteralExpression(String className, List<String> genericClasses, Object rawExpression) {
+        if (!(rawExpression instanceof String)) {
+            return rawExpression;
         }
 
-        return commonEvaluationLiteralExpression(className, genericClasses, (String) raw);
+        return commonEvaluationLiteralExpression(className, genericClasses, (String) rawExpression);
     }
 
     @Override
@@ -102,8 +106,13 @@ public class DMNFeelExpressionEvaluator extends AbstractExpressionEvaluator {
         if (rawExpression != null && skipEmptyString && rawExpression.isEmpty()) {
             return true;
         }
+
+        Map<String, Type> variables = new HashMap<>();
+        variables.put(UNARY_PARAMETER_IDENTIFIER, BuiltInType.UNKNOWN);
+        List<UnaryTest> unaryTests = executeAndVerifyErrors(feel -> feel.evaluateUnaryTests(rawExpression, variables));
+
         EvaluationContext evaluationContext = newEvaluationContext();
-        List<UnaryTest> unaryTests = executeAndVerifyErrors(feel -> feel.evaluateUnaryTests(rawExpression));
+        evaluationContext.setValue(UNARY_PARAMETER_IDENTIFIER, resultValue);
         return unaryTests.stream()
                 .allMatch(unaryTest -> Optional
                         .ofNullable(unaryTest.apply(evaluationContext, resultValue))
@@ -146,6 +155,26 @@ public class DMNFeelExpressionEvaluator extends AbstractExpressionEvaluator {
     protected void setField(Object toReturn, String fieldName, Object fieldValue) {
         Map<String, Object> returnMap = (Map<String, Object>) toReturn;
         returnMap.put(fieldName, fieldValue);
+    }
+
+    /**
+     * In DMN only Lists are structured result while Maps are context so "plain" FEEL expressions
+     * @param resultClass
+     * @return
+     */
+    @Override
+    protected boolean isStructuredResult(Class<?> resultClass) {
+        return resultClass != null && ScenarioSimulationSharedUtils.isList(resultClass.getCanonicalName());
+    }
+
+    /**
+     * In DMN only Lists are structured input while Maps are context so "plain" FEEL expressions
+     * @param className
+     * @return
+     */
+    @Override
+    protected boolean isStructuredInput(String className) {
+        return ScenarioSimulationSharedUtils.isList(className);
     }
 
     /**

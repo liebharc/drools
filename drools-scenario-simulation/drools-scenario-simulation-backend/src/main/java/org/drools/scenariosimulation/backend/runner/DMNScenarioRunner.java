@@ -16,30 +16,18 @@
 
 package org.drools.scenariosimulation.backend.runner;
 
-import java.util.List;
-
-import org.drools.scenariosimulation.api.model.ScenarioWithIndex;
-import org.drools.scenariosimulation.api.model.Simulation;
-import org.drools.scenariosimulation.api.model.SimulationDescriptor;
-import org.drools.scenariosimulation.backend.expression.DMNFeelExpressionEvaluator;
+import org.drools.scenariosimulation.backend.expression.ExpressionEvaluatorFactory;
+import org.drools.scenariosimulation.backend.runner.model.ScenarioRunnerDTO;
 import org.kie.api.runtime.KieContainer;
 
 public class DMNScenarioRunner extends AbstractScenarioRunner {
 
-    public DMNScenarioRunner(KieContainer kieContainer, Simulation simulation) {
-        this(kieContainer, simulation, null);
-    }
-
-    public DMNScenarioRunner(KieContainer kieContainer, Simulation simulation, String fileName) {
-        this(kieContainer, simulation.getSimulationDescriptor(), simulation.getScenarioWithIndex(), fileName);
-    }
-
-    public DMNScenarioRunner(KieContainer kieContainer, SimulationDescriptor simulationDescriptor, List<ScenarioWithIndex> scenarios) {
-        this(kieContainer, simulationDescriptor, scenarios, null);
-    }
-
-    public DMNScenarioRunner(KieContainer kieContainer, SimulationDescriptor simulationDescriptor, List<ScenarioWithIndex> scenarios, String fileName) {
-        super(kieContainer, simulationDescriptor, scenarios, fileName, DMNFeelExpressionEvaluator::new);
+    public DMNScenarioRunner(KieContainer kieContainer, ScenarioRunnerDTO scenarioRunnerDTO) {
+        super(kieContainer,
+              scenarioRunnerDTO,
+              ExpressionEvaluatorFactory.create(
+                      kieContainer.getClassLoader(),
+                      scenarioRunnerDTO.getSettings().getType()));
     }
 
     @Override

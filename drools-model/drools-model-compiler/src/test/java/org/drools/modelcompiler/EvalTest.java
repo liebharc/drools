@@ -18,6 +18,8 @@ package org.drools.modelcompiler;
 
 import java.util.Collection;
 
+import org.assertj.core.api.Assertions;
+import org.drools.modelcompiler.domain.CalcFact;
 import org.drools.modelcompiler.domain.Overloaded;
 import org.drools.modelcompiler.domain.Person;
 import org.drools.modelcompiler.domain.Result;
@@ -416,5 +418,50 @@ public class EvalTest extends BaseModelTest {
         Collection<Result> results = getObjectsIntoList(ksession, Result.class);
         assertEquals(results.iterator().next().getValue().toString(), "match");
 
+    }
+
+    @Test
+    public void testEvalExprWithFunctionCall() {
+        String str =
+                "import " + Person.class.getCanonicalName() + ";" +
+                        "global " + GlobalFunctions.class.getCanonicalName() + " functions;" +
+                        "rule R1 when\n" +
+                        "  $p : Person($age : age)\n" +
+                        "  eval( functions.add($age, -1).compareTo(10) < 0)\n" +
+                        "then\n" +
+                        "end\n";
+
+        KieSession ksession = getKieSession(str);
+        GlobalFunctions gf = new GlobalFunctions();
+        ksession.setGlobal("functions", gf);
+
+        Person first = new Person("First", 10);
+        ksession.insert(first);
+        Assertions.assertThat(ksession.fireAllRules()).isEqualTo(1);
+    }
+
+    public static class GlobalFunctions {
+        public Integer add(int a, int b) {
+            return Integer.sum(a, b);
+        }
+    }
+
+    @Test
+    public void testEvalCalculationWithParenthesis() {
+        String str =
+                "import " + CalcFact.class.getCanonicalName() + ";" +
+                "rule R when\n" +
+                "  $p : CalcFact( $v1 : value1, $v2 : value2 )\n" +
+                "  eval( ($v1 / ($v2 * 10) * 10) > 25 )\n" +
+                "then\n" +
+                "end";
+
+        KieSession ksession = getKieSession(str);
+
+        ksession.insert(new CalcFact(1.0d, 1.0d));
+        // (1.0 / (1.0 * 10) * 10) is 1. So this rule should not fire
+
+        int fired = ksession.fireAllRules();
+        assertEquals(0, fired);
     }
 }

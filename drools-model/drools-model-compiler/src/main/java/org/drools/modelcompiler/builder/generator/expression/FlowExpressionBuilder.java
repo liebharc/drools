@@ -16,6 +16,7 @@ import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.type.UnknownType;
+import org.drools.modelcompiler.builder.generator.DrlxParseUtil;
 import org.drools.modelcompiler.builder.generator.RuleContext;
 import org.drools.modelcompiler.builder.generator.TypedExpression;
 import org.drools.modelcompiler.builder.generator.drlxparse.DrlxParseSuccess;
@@ -39,6 +40,25 @@ public class FlowExpressionBuilder extends AbstractExpressionBuilder {
 
     public FlowExpressionBuilder(RuleContext context) {
         super(context);
+    }
+
+    @Override
+    public void processExpression(SingleDrlxParseSuccess drlxParseResult)  {
+        if (drlxParseResult.hasUnificationVariable()) {
+            Expression dslExpr = buildUnificationExpression(drlxParseResult);
+            context.addExpression(dslExpr);
+        } else if ( drlxParseResult.isValidExpression() ) {
+            Expression dslExpr = buildExpressionWithIndexing(drlxParseResult);
+            context.addExpression(dslExpr);
+        }
+
+        if(DrlxParseUtil.isThisExpression(drlxParseResult.getExpr())) {
+            Expression inputExpr = createInputExpression(drlxParseResult.getExprBinding());
+            context.addExpression(inputExpr);
+        } else if (drlxParseResult.getExprBinding() != null) {
+            Expression dslExpr = buildBinding(drlxParseResult);
+            context.addExpression(dslExpr);
+        }
     }
 
     @Override
@@ -114,7 +134,7 @@ public class FlowExpressionBuilder extends AbstractExpressionBuilder {
     }
 
     private MethodCallExpr buildReactOn(SingleDrlxParseSuccess drlxParseResult, MethodCallExpr exprDSL ) {
-        if ( !drlxParseResult.getReactOnProperties().isEmpty() && context.isPropertyReactive( drlxParseResult.getPatternType() ) ) {
+        if (shouldBuildReactOn(drlxParseResult)) {
             exprDSL = new MethodCallExpr(exprDSL, REACT_ON_CALL);
             drlxParseResult.getReactOnProperties().stream()
                     .map( StringLiteralExpr::new )
@@ -171,7 +191,7 @@ public class FlowExpressionBuilder extends AbstractExpressionBuilder {
         MethodCallExpr indexedByDSL = new MethodCallExpr(exprDSL, INDEXED_BY_CALL);
         indexedByDSL.addArgument(new ClassExpr(parseType(getIndexType(left, right ).getCanonicalName())));
         indexedByDSL.addArgument( indexedBy_constraintType );
-        indexedByDSL.addArgument( "" + indexIdGenerator.getFieldId(drlxParseResult.getPatternType(), left.getFieldName() ) );
+        indexedByDSL.addArgument( getIndexIdArgument( drlxParseResult, left ) );
         indexedByDSL.addArgument( indexedBy_leftOperandExtractor );
 
         Collection<String> usedDeclarations = drlxParseResult.getUsedDeclarations();

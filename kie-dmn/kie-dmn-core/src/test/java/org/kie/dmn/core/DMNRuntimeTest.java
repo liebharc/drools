@@ -2570,5 +2570,49 @@ public class DMNRuntimeTest extends BaseInterpretedVsCompiledTest {
         assertThat(result.get("Decision Table"), is("A"));
         assertThat(result.get("Litteral Expression"), is("A"));
     }
+
+    @Test
+    public void testTimeOffsetAccessorFromDeclVariable() {
+        // DROOLS-4504 DMN time offset accessor from decl variable type
+        final DMNRuntime runtime = DMNRuntimeUtil.createRuntime("ContextEntryTypeCascade.dmn", this.getClass());
+        final DMNModel dmnModel = runtime.getModel("http://www.trisotech.com/definitions/_8a15bd3c-c732-42c8-a2e4-60f1a23a1c5a", "Drawing 1");
+        assertThat(dmnModel, notNullValue());
+        assertThat(DMNRuntimeUtil.formatMessages(dmnModel.getMessages()), dmnModel.hasErrors(), is(false));
+
+        final DMNContext context = DMNFactory.newContext();
+
+        final DMNResult dmnResult = runtime.evaluateAll(dmnModel, context);
+        LOG.debug("{}", dmnResult);
+        assertThat(DMNRuntimeUtil.formatMessages(dmnResult.getMessages()), dmnResult.hasErrors(), is(false));
+
+        final DMNContext result = dmnResult.getContext();
+        assertThat(((Map<?, ?>) result.get("Date and Time")).get("Working DT hours"), is(new BigDecimal("-9")));
+        assertThat(((Map<?, ?>) result.get("Date and Time")).get("Not working DT hours from Variable"), is(new BigDecimal("-9")));
+        assertThat(((Map<?, ?>) result.get("Time")).get("Working Time hours"), is(new BigDecimal("-11")));
+        assertThat(((Map<?, ?>) result.get("Time")).get("Not working Time hours from Variable"), is(new BigDecimal("-11")));
+    }
+
+    @Test
+    public void testSO58507157() {
+        // DROOLS-4679 DMN FEEL list contains() invocation from DMN layer fixes
+        final DMNRuntime runtime = DMNRuntimeUtil.createRuntime("so58507157.dmn", this.getClass());
+        final DMNModel dmnModel = runtime.getModel("http://sample.dmn", "DecisionNumberInList");
+        assertThat(dmnModel, notNullValue());
+        assertThat(DMNRuntimeUtil.formatMessages(dmnModel.getMessages()), dmnModel.hasErrors(), is(false));
+
+        final DMNContext context = DMNFactory.newContext();
+        context.set("inputNumber", 1);
+        context.set("inputNumberList", Arrays.asList(0, 1));
+
+        final DMNResult dmnResult = runtime.evaluateAll(dmnModel, context);
+        LOG.debug("{}", dmnResult);
+        assertThat(DMNRuntimeUtil.formatMessages(dmnResult.getMessages()), dmnResult.hasErrors(), is(false));
+
+        final DMNContext result = dmnResult.getContext();
+        assertThat((Map<?, ?>) result.get("DecisionNumberInList"), hasEntry(is("Result_1_OK"), is(true)));
+        assertThat((Map<?, ?>) result.get("DecisionNumberInList"), hasEntry(is("Result_2_OK"), is(true)));
+        assertThat((Map<?, ?>) result.get("DecisionNumberInList"), hasEntry(is("Result_3"), is(true)));
+        assertThat((Map<?, ?>) result.get("DecisionNumberInList"), hasEntry(is("Result_4"), is(true)));
+    }
 }
 

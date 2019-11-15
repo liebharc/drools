@@ -64,7 +64,7 @@ public class SingleConstraint12<A, B, C, D, E, F, G, H, I, J, K, L> extends Abst
     public SingleConstraint12( Expr12ViewItemImpl<A, B, C, D, E, F, G, H, I, J, K, L> expr) {
         this(expr.getExprId(), expr.getFirstVariable(), expr.getVar2(), expr.getVar3(), expr.getVar4(), expr.getVar5(), expr.getVar6(), expr.getVar7(),
                 expr.getVar8(), expr.getVar9(), expr.getVar10(), expr.getVar11(), expr.getVar12(), expr.getPredicate());
-        setReactiveProps( expr.getReactiveProps() );
+        setReactivitySpecs( expr.getReactivitySpecs() );
     }
 
     @Override
@@ -99,5 +99,51 @@ public class SingleConstraint12<A, B, C, D, E, F, G, H, I, J, K, L> extends Abst
         if ( !ModelComponent.areEqualInModel( var11, that.var11 ) ) return false;
         if ( !ModelComponent.areEqualInModel( var12, that.var12 ) ) return false;
         return predicate.equals( that.predicate );
+    }
+
+    @Override
+    public SingleConstraint12<A, B, C, D, E, F, G, H, I, J, K, L> negate() {
+        return negate( new SingleConstraint12<>("!" + getExprId(), var1, var2, var3, var4, var5, var6, var7, var8, var9, var10, var11, var12, predicate.negate()) );
+    }
+
+    @Override
+    public SingleConstraint12<A, B, C, D, E, F, G, H, I, J, K, L> replaceVariable( Variable oldVar, Variable newVar ) {
+        if (var1 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), newVar, var2, var3, var4, var5, var6, var7, var8, var9, var10, var11, var12, predicate);
+        }
+        if (var2 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), var1, newVar, var3, var4, var5, var6, var7, var8, var9, var10, var11, var12, predicate);
+        }
+        if (var3 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), var1, var2, newVar, var4, var5, var6, var7, var8, var9, var10, var11, var12, predicate);
+        }
+        if (var4 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), var1, var2, var3, newVar, var5, var6, var7, var8, var9, var10, var11, var12, predicate);
+        }
+        if (var5 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), var1, var2, var3, var4, newVar, var6, var7, var8, var9, var10, var11, var12, predicate);
+        }
+        if (var6 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), var1, var2, var3, var4, var5, newVar, var7, var8, var9, var10, var11, var12, predicate);
+        }
+        if (var7 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), var1, var2, var3, var4, var5, var6, newVar, var8, var9, var10, var11, var12, predicate);
+        }
+        if (var8 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), var1, var2, var3, var4, var5, var6, var7, newVar, var9, var10, var11, var12, predicate);
+        }
+        if (var9 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), var1, var2, var3, var4, var5, var6, var7, var8, newVar, var10, var11, var12, predicate);
+        }
+        if (var10 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), var1, var2, var3, var4, var5, var6, var7, var8, var9, newVar, var11, var12, predicate);
+        }
+        if (var11 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), var1, var2, var3, var4, var5, var6, var7, var8, var9, var10, newVar, var12, predicate);
+        }
+        if (var12 == oldVar) {
+            return new SingleConstraint12<>(getExprId(), var1, var2, var3, var4, var5, var6, var7, var8, var9, var10, var11, newVar, predicate);
+        }
+        return this;
     }
 }

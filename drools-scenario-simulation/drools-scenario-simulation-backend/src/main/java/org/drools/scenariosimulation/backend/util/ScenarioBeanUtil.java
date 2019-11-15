@@ -55,6 +55,8 @@ public class ScenarioBeanUtil {
             } catch (ReflectiveOperationException e) {
                 throw new ScenarioException(new StringBuilder().append("Impossible to fill ").append(className)
                                                     .append(" with the provided properties").toString(), e);
+            } catch (IllegalArgumentException e) {
+                throw new ScenarioException(e.getMessage(), e);
             }
         }
 
@@ -66,7 +68,7 @@ public class ScenarioBeanUtil {
         String lastStep = steps.get(steps.size() - 1);
 
         Object currentObject = beanToFill;
-        if (pathToProperty.size() > 0) {
+        if (!pathToProperty.isEmpty()) {
             ScenarioBeanWrapper<?> scenarioBeanWrapper = navigateToObject(beanToFill, pathToProperty, true);
             currentObject = scenarioBeanWrapper.getBean();
         }
@@ -123,6 +125,9 @@ public class ScenarioBeanUtil {
     }
 
     public static Object convertValue(String className, Object cleanValue, ClassLoader classLoader) {
+        // "null" string is converted to null
+        cleanValue = "null".equals(cleanValue) ? null : cleanValue;
+
         if (!isPrimitive(className) && cleanValue == null) {
             return null;
         }
@@ -140,26 +145,30 @@ public class ScenarioBeanUtil {
 
         String value = (String) cleanValue;
 
-        if (clazz.isAssignableFrom(String.class)) {
-            return value;
-        } else if (clazz.isAssignableFrom(Boolean.class) || clazz.isAssignableFrom(boolean.class)) {
-            return parseBoolean(value);
-        } else if (clazz.isAssignableFrom(Integer.class) || clazz.isAssignableFrom(int.class)) {
-            return Integer.parseInt(cleanStringForNumberParsing(value));
-        } else if (clazz.isAssignableFrom(Long.class) || clazz.isAssignableFrom(long.class)) {
-            return Long.parseLong(cleanStringForNumberParsing(value));
-        } else if (clazz.isAssignableFrom(Double.class) || clazz.isAssignableFrom(double.class)) {
-            return Double.parseDouble(cleanStringForNumberParsing(value));
-        } else if (clazz.isAssignableFrom(Float.class) || clazz.isAssignableFrom(float.class)) {
-            return Float.parseFloat(cleanStringForNumberParsing(value));
-        } else if (clazz.isAssignableFrom(Character.class) || clazz.isAssignableFrom(char.class)) {
-            return parseChar(value);
-        } else if (clazz.isAssignableFrom(Byte.class) || clazz.isAssignableFrom(byte.class)) {
-            return parseByte(value);
-        } else if (clazz.isAssignableFrom(Short.class) || clazz.isAssignableFrom(short.class)) {
-            return Short.parseShort(cleanStringForNumberParsing(value));
-        } else if (clazz.isAssignableFrom(LocalDate.class)) {
-            return LocalDate.parse(value, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        try {
+            if (clazz.isAssignableFrom(String.class)) {
+                return value;
+            } else if (clazz.isAssignableFrom(Boolean.class) || clazz.isAssignableFrom(boolean.class)) {
+                return parseBoolean(value);
+            } else if (clazz.isAssignableFrom(Integer.class) || clazz.isAssignableFrom(int.class)) {
+                return Integer.parseInt(cleanStringForNumberParsing(value));
+            } else if (clazz.isAssignableFrom(Long.class) || clazz.isAssignableFrom(long.class)) {
+                return Long.parseLong(cleanStringForNumberParsing(value));
+            } else if (clazz.isAssignableFrom(Double.class) || clazz.isAssignableFrom(double.class)) {
+                return Double.parseDouble(cleanStringForNumberParsing(value));
+            } else if (clazz.isAssignableFrom(Float.class) || clazz.isAssignableFrom(float.class)) {
+                return Float.parseFloat(cleanStringForNumberParsing(value));
+            } else if (clazz.isAssignableFrom(Character.class) || clazz.isAssignableFrom(char.class)) {
+                return parseChar(value);
+            } else if (clazz.isAssignableFrom(Byte.class) || clazz.isAssignableFrom(byte.class)) {
+                return Byte.parseByte(value);
+            } else if (clazz.isAssignableFrom(Short.class) || clazz.isAssignableFrom(short.class)) {
+                return Short.parseShort(cleanStringForNumberParsing(value));
+            } else if (clazz.isAssignableFrom(LocalDate.class)) {
+                return LocalDate.parse(value, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            }
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException(new StringBuilder().append("Impossible to parse '").append(value).append("' as ").append(className).append(" [").append(e.getMessage()).append("]").toString());
         }
 
         throw new IllegalArgumentException(new StringBuilder().append("Class ").append(className)
@@ -180,11 +189,11 @@ public class ScenarioBeanUtil {
         } else if (clazz.isAssignableFrom(Integer.class) || clazz.isAssignableFrom(int.class)) {
             return Integer.toString((Integer) cleanValue);
         } else if (clazz.isAssignableFrom(Long.class) || clazz.isAssignableFrom(long.class)) {
-            return cleanValue + "L";
+            return Long.toString((Long) cleanValue);
         } else if (clazz.isAssignableFrom(Double.class) || clazz.isAssignableFrom(double.class)) {
-            return cleanValue + "D";
+            return cleanValue + "d";
         } else if (clazz.isAssignableFrom(Float.class) || clazz.isAssignableFrom(float.class)) {
-            return cleanValue + "F";
+            return cleanValue + "f";
         } else if (clazz.isAssignableFrom(Character.class) || clazz.isAssignableFrom(char.class)) {
             return String.valueOf(cleanValue);
         } else if (clazz.isAssignableFrom(Byte.class) || clazz.isAssignableFrom(byte.class)) {
@@ -250,16 +259,9 @@ public class ScenarioBeanUtil {
 
     private static char parseChar(String value) {
         if (value == null || value.length() != 1) {
-            throw new IllegalArgumentException("Impossible to transform " + value + "as char");
+            throw new IllegalArgumentException("Impossible to transform " + value + " as char");
         }
         return value.charAt(0);
-    }
-
-    private static byte parseByte(String value) {
-        if (value == null || value.length() != 1) {
-            throw new IllegalArgumentException("Impossible to transform " + value + "as byte");
-        }
-        return value.getBytes()[0];
     }
 
     private static String cleanStringForNumberParsing(String rawValue) {

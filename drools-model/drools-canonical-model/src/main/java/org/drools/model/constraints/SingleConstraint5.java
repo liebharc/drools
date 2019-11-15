@@ -38,7 +38,7 @@ public class SingleConstraint5<A, B, C, D, E> extends AbstractSingleConstraint {
 
     public SingleConstraint5( Expr5ViewItemImpl<A, B, C, D, E> expr) {
         this(expr.getExprId(), expr.getFirstVariable(), expr.getVar2(), expr.getVar3(), expr.getVar4(), expr.getVar5(), expr.getPredicate());
-        setReactiveProps( expr.getReactiveProps() );
+        setReactivitySpecs( expr.getReactivitySpecs() );
     }
 
     @Override
@@ -66,5 +66,30 @@ public class SingleConstraint5<A, B, C, D, E> extends AbstractSingleConstraint {
         if ( !ModelComponent.areEqualInModel( var4, that.var4 ) ) return false;
         if ( !ModelComponent.areEqualInModel( var5, that.var5 ) ) return false;
         return predicate.equals( that.predicate );
+    }
+
+    @Override
+    public SingleConstraint5<A, B, C, D, E> negate() {
+        return negate( new SingleConstraint5<>("!" + getExprId(), var1, var2, var3, var4, var5, predicate.negate()) );
+    }
+
+    @Override
+    public SingleConstraint5<A, B, C, D, E> replaceVariable( Variable oldVar, Variable newVar ) {
+        if (var1 == oldVar) {
+            return new SingleConstraint5<>(getExprId(), newVar, var2, var3, var4, var5, predicate);
+        }
+        if (var2 == oldVar) {
+            return new SingleConstraint5<>(getExprId(), var1, newVar, var3, var4, var5, predicate);
+        }
+        if (var3 == oldVar) {
+            return new SingleConstraint5<>(getExprId(), var1, var2, newVar, var4, var5, predicate);
+        }
+        if (var4 == oldVar) {
+            return new SingleConstraint5<>(getExprId(), var1, var2, var3, newVar, var5, predicate);
+        }
+        if (var5 == oldVar) {
+            return new SingleConstraint5<>(getExprId(), var1, var2, var3, var4, newVar, predicate);
+        }
+        return this;
     }
 }

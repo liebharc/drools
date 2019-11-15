@@ -16,13 +16,14 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
@@ -67,8 +68,7 @@ import org.drools.compiler.lang.descr.AnnotationDescr;
 import org.drools.compiler.lang.descr.PatternDescr;
 import org.drools.core.util.ClassUtils;
 import org.drools.core.util.StringUtils;
-import org.drools.core.util.index.IndexUtil;
-import org.drools.core.util.index.IndexUtil.ConstraintType;
+import org.drools.model.Index;
 import org.drools.modelcompiler.builder.errors.InvalidExpressionErrorResult;
 import org.drools.modelcompiler.util.ClassUtil;
 import org.drools.mvel.parser.DrlxParser;
@@ -101,22 +101,22 @@ public class DrlxParseUtil {
         return expr instanceof ThisExpr || (expr instanceof NameExpr && ((NameExpr)expr).getName().getIdentifier().equals(THIS_PLACEHOLDER));
     }
 
-    public static IndexUtil.ConstraintType toConstraintType(Operator operator) {
+    public static Index.ConstraintType toConstraintType( Operator operator) {
         switch (operator) {
             case EQUALS:
-                return ConstraintType.EQUAL;
+                return Index.ConstraintType.EQUAL;
             case NOT_EQUALS:
-                return ConstraintType.NOT_EQUAL;
+                return Index.ConstraintType.NOT_EQUAL;
             case GREATER:
-                return ConstraintType.GREATER_THAN;
+                return Index.ConstraintType.GREATER_THAN;
             case GREATER_EQUALS:
-                return ConstraintType.GREATER_OR_EQUAL;
+                return Index.ConstraintType.GREATER_OR_EQUAL;
             case LESS:
-                return ConstraintType.LESS_THAN;
+                return Index.ConstraintType.LESS_THAN;
             case LESS_EQUALS:
-                return ConstraintType.LESS_OR_EQUAL;
+                return Index.ConstraintType.LESS_OR_EQUAL;
             default:
-                return ConstraintType.UNKNOWN;
+                return Index.ConstraintType.UNKNOWN;
         }
     }
 
@@ -170,6 +170,10 @@ public class DrlxParseUtil {
     public static java.lang.reflect.Type getExpressionType(RuleContext context, TypeResolver typeResolver, Expression expr, Collection<String> usedDeclarations) {
         if (expr instanceof LiteralExpr) {
             return getLiteralExpressionType( ( LiteralExpr ) expr );
+        }
+
+        if (expr instanceof UnaryExpr) {
+            return getExpressionType(context, typeResolver, expr.asUnaryExpr().getExpression(), usedDeclarations);
         }
 
         if (expr instanceof ArrayAccessExpr) {
@@ -251,7 +255,7 @@ public class DrlxParseUtil {
             usedDeclarations.add(name);
         }
         Optional<java.lang.reflect.Type> type = context.getDeclarationById( name ).map(DeclarationSpec::getDeclarationClass );
-        return type.orElseThrow(() -> new IllegalArgumentException("Cannot get expression type by name " + name + "!"));
+        return type.orElseThrow(() -> new NoSuchElementException("Cannot get expression type by name " + name + "!"));
     }
 
     public static boolean canCoerceLiteralNumberExpr(Class<?> type) {
@@ -375,8 +379,8 @@ public class DrlxParseUtil {
                 acc.addLast(sanitizedExpr.clone());
                 return findRootNodeViaScopeRec(scope, acc);
             }).orElse(new RemoveRootNodeResult(Optional.of(expr), expr, acc.isEmpty() ? expr : acc.getLast()));
-        } else if (expr instanceof NameExpr || expr instanceof DrlNameExpr) {
-            if(acc.size() > 0 && acc.getLast() instanceof NodeWithOptionalScope) {
+        } else if (expr instanceof NameExpr) {
+            if(!acc.isEmpty() && acc.getLast() instanceof NodeWithOptionalScope) {
                 ((NodeWithOptionalScope) acc.getLast()).setScope(null);
 
                 for (ListIterator<Expression> iterator = acc.listIterator(); iterator.hasNext(); ) {
@@ -453,8 +457,8 @@ public class DrlxParseUtil {
         return key.substring( "var_".length() );
     }
 
-    public static BlockStmt parseBlock(String ruleConsequenceAsBlock) throws ParseProblemException {
-        return StaticJavaParser.parseBlock(String.format("{%n%s%n}", ruleConsequenceAsBlock)); // if the RHS is composed only of a line of comment like `//do nothing.` then JavaParser would fail to recognize the ending }
+    public static BlockStmt parseBlock(String ruleConsequenceAsBlock) {
+        return StaticJavaParser.parseBlock(String.format("{%n%s%n}", ruleConsequenceAsBlock)); // if the RHS is composed only of a line of comment like `//do nothing.` then JavaParser would fail to recognize the ending
     }
 
     public static Expression generateLambdaWithoutParameters(Collection<String> usedDeclarations, Expression expr) {
@@ -491,7 +495,7 @@ public class DrlxParseUtil {
         Expression previousScope = null;
 
         for (ParsedMethod e : callStackLeftToRight) {
-            if (e.expression instanceof DrlNameExpr || e.expression instanceof NameExpr || e.expression instanceof FieldAccessExpr || e.expression instanceof NullSafeFieldAccessExpr) {
+            if (e.expression instanceof NameExpr || e.expression instanceof FieldAccessExpr || e.expression instanceof NullSafeFieldAccessExpr) {
                 if (e.fieldToResolve.equals( bindingId )) {
                     continue;
                 }
@@ -597,8 +601,7 @@ public class DrlxParseUtil {
     public static Optional<Expression> findViaScopeWithPredicate(Expression expr, Predicate<Expression> predicate) {
 
         final Boolean result = predicate.test(expr);
-
-        if(result) {
+        if(Boolean.TRUE.equals(result)) {
             return Optional.of(expr);
         } else if (expr instanceof NodeWithTraversableScope) {
             final NodeWithTraversableScope exprWithScope = (NodeWithTraversableScope) expr;
@@ -718,11 +721,12 @@ public class DrlxParseUtil {
                         .collect( toList() );
     }
 
-    public static Optional<MethodCallExpr> findPatternWithBinding(RuleContext context, String patternBinding, List<Expression> expressions) {
+    public static Optional<MethodCallExpr> findPatternWithBinding(RuleContext context, Collection<String> patternBindings, List<Expression> expressions) {
         return expressions.stream().flatMap((Expression e) -> {
             final Optional<MethodCallExpr> pattern = e.findFirst(MethodCallExpr.class, expr -> {
-                final boolean isPatternExpr = expr.getName().asString().equals(PATTERN_CALL);
-                final boolean hasBindingHasArgument = expr.getArguments().contains(context.getVarExpr(patternBinding));
+                boolean isPatternExpr = expr.getName().asString().equals(PATTERN_CALL);
+                List<Expression> bindingExprsVars = patternBindings.stream().map(context::getVarExpr).collect(Collectors.toList());
+                boolean hasBindingHasArgument = !Collections.disjoint(bindingExprsVars, expr.getArguments());
                 return isPatternExpr && hasBindingHasArgument;
             });
             return pattern.map(Stream::of).orElse(Stream.empty());
@@ -767,7 +771,7 @@ public class DrlxParseUtil {
         final Set<String> duplicates = new HashSet<>();
         for(String b : allBindings) {
             Boolean notExisting = duplicates.add(b);
-            if(!notExisting) {
+            if(Boolean.FALSE.equals(notExisting)) {
                 return Optional.of(new InvalidExpressionErrorResult(String.format("Duplicate declaration for variable '%s' in the rule '%s'", b, ruleName)));
             }
         }
@@ -828,5 +832,9 @@ public class DrlxParseUtil {
 
     public static String addSemicolon(String block) {
         return block.endsWith(";") ? block : block + ";";
+    }
+
+    private DrlxParseUtil() {
+        // It is not allowed to create instances of util classes.
     }
 }

@@ -393,6 +393,14 @@ public class RuleModelDRLPersistenceImpl
                 buf.append("java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(\"" + DateUtils.getDateFormatMask() + "\");\n");
             }
 
+            if (classes.containsKey(DataType.TYPE_LOCAL_DATE)) {
+                buf.append(indentation);
+                if (isDSLEnhanced) {
+                    buf.append(">");
+                }
+                buf.append("java.time.format.DateTimeFormatter dtf = java.time.format.DateTimeFormatter.ofPattern(\"" + DateUtils.getDateFormatMask() + "\");\n");
+            }
+
             //Add boiler-plate for actions operating on WorkItems
             if (!getRHSWorkItemDependencies(model).isEmpty()) {
                 buf.append(indentation);
@@ -1316,8 +1324,7 @@ public class RuleModelDRLPersistenceImpl
                                          final String value) {
             String workingValue = value.trim();
             if (workingValue.startsWith("(") && workingValue.endsWith(")")) {
-                workingValue = workingValue.substring(1);
-                workingValue = workingValue.substring(0,
+                workingValue = workingValue.substring(1,
                                                       workingValue.length() - 1);
             }
 
@@ -4112,7 +4119,7 @@ public class RuleModelDRLPersistenceImpl
             } else if (value.startsWith("(")) {
                 if (operator != null && operator.contains("in")) {
                     con.setConstraintValueType(SingleFieldConstraint.TYPE_LITERAL);
-                    con.setValue(unwrapParenthesis(value));
+                    con.setValue(String.join(", ", ListSplitter.split("\"", true, unwrapParenthesis(value))));
                 } else {
                     con.setConstraintValueType(SingleFieldConstraint.TYPE_RET_VALUE);
                     con.setValue(unwrapParenthesis(value));

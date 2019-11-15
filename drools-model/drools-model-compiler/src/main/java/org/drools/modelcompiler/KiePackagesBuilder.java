@@ -21,6 +21,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -101,6 +102,7 @@ import org.drools.model.WindowDefinition;
 import org.drools.model.WindowReference;
 import org.drools.model.consequences.ConditionalNamedConsequenceImpl;
 import org.drools.model.consequences.NamedConsequenceImpl;
+import org.drools.model.constraints.AbstractSingleConstraint;
 import org.drools.model.constraints.SingleConstraint1;
 import org.drools.model.functions.Function0;
 import org.drools.model.functions.Predicate1;
@@ -136,7 +138,6 @@ import org.kie.api.definition.type.Role;
 
 import static java.util.stream.Collectors.toList;
 
-import static org.drools.compiler.lang.descr.ForallDescr.BASE_IDENTIFIER;
 import static org.drools.compiler.rule.builder.RuleBuilder.buildTimer;
 import static org.drools.core.rule.GroupElement.AND;
 import static org.drools.core.rule.Pattern.getReadAcessor;
@@ -182,7 +183,7 @@ public class KiePackagesBuilder {
 
             for (TypeMetaData metaType : model.getTypeMetaDatas()) {
                 KnowledgePackageImpl pkg = ( KnowledgePackageImpl ) packages.computeIfAbsent( metaType.getPackage(), this::createKiePackage );
-                pkg.addTypeDeclaration( createTypeDeclaration( pkg, metaType ) );
+                pkg.addTypeDeclaration( createTypeDeclaration(metaType ) );
             }
 
             for (Global global : model.getGlobals()) {
@@ -465,33 +466,43 @@ public class KiePackagesBuilder {
                 }
 
                 pattern.setSource(buildAccumulate(ctx, accumulatePattern, source, pattern, usedVariableName, binding) );
+
+                for(Variable v : accumulatePattern.getBoundVariables()) {
+                    if(source instanceof Pattern) {
+                        ctx.registerPattern(v, (Pattern) source);
+                    }
+                }
+
                 return existingPattern ? null : pattern;
             }
             case QUERY:
                 return buildQueryPattern( ctx, ( (QueryCallPattern) condition ) );
             case NOT:
             case EXISTS: {
-                GroupElement ge = new GroupElement( conditionToGroupElementType( condition.getType() ) );
                 // existential pattern can have only one subcondition
-                ge.addChild( conditionToElement( ctx, group, condition.getSubConditions().get(0) ) );
-                return ge;
+                return new GroupElement( conditionToGroupElementType( condition.getType() ) )
+                        .addChild( conditionToElement( ctx, group, condition.getSubConditions().get(0) ) );
             }
             case FORALL: {
                 Condition innerCondition = condition.getSubConditions().get(0);
-                Pattern basePattern;
-                List<Pattern> remainingPatterns = new ArrayList<>();
                 if (innerCondition instanceof PatternImpl) {
-                    basePattern = new Pattern( ctx.getNextPatternIndex(),
-                                               0, // offset will be set by ReteooBuilder
-                                               getObjectType( (( PatternImpl ) innerCondition).getPatternVariable() ),
-                                               BASE_IDENTIFIER,
-                                               true );
-                    remainingPatterns.add( (Pattern) conditionToElement( ctx, group, innerCondition ) );
-                } else {
-                    basePattern = ( Pattern ) conditionToElement( ctx, group, innerCondition.getSubConditions().get( 0 ) );
-                    for (int i = 1; i < innerCondition.getSubConditions().size(); i++) {
-                        remainingPatterns.add( ( Pattern ) conditionToElement( ctx, group, innerCondition.getSubConditions().get( i ) ) );
-                    }
+                    return new GroupElement( GroupElement.Type.NOT )
+                            .addChild( conditionToElement( ctx, group, (( PatternImpl ) innerCondition).negate() ) );
+                }
+
+                Constraint selfJoinConstraint = getForallSelfJoin( innerCondition );
+                if (selfJoinConstraint != null) {
+                    PatternImpl forallPattern = (PatternImpl) innerCondition.getSubConditions().get(0);
+                    PatternImpl joinPattern = (PatternImpl) innerCondition.getSubConditions().get(1);
+                    joinPattern.getConstraint().getChildren().remove( selfJoinConstraint );
+                    forallPattern.addConstraint( joinPattern.negate().getConstraint().replaceVariable(joinPattern.getPatternVariable(), forallPattern.getPatternVariable()) );
+                    return new GroupElement( GroupElement.Type.NOT ).addChild( conditionToElement( ctx, group, forallPattern ) );
+                }
+
+                List<Pattern> remainingPatterns = new ArrayList<>();
+                Pattern basePattern = ( Pattern ) conditionToElement( ctx, group, innerCondition.getSubConditions().get( 0 ) );
+                for (int i = 1; i < innerCondition.getSubConditions().size(); i++) {
+                    remainingPatterns.add( ( Pattern ) conditionToElement( ctx, group, innerCondition.getSubConditions().get( i ) ) );
                 }
                 return new Forall(basePattern, remainingPatterns);
             }
@@ -504,6 +515,22 @@ public class KiePackagesBuilder {
                 }
         }
         throw new UnsupportedOperationException();
+    }
+
+    private Constraint getForallSelfJoin(Condition condition) {
+        if (condition instanceof CompositePatterns && condition.getSubConditions().size() == 2 &&
+                condition.getSubConditions().get(0) instanceof PatternImpl && condition.getSubConditions().get(1) instanceof PatternImpl) {
+            PatternImpl joinPattern = (PatternImpl) condition.getSubConditions().get(1);
+            for (Constraint constraint : joinPattern.getConstraint().getChildren()) {
+                if (constraint instanceof AbstractSingleConstraint) {
+                    Index index = (( AbstractSingleConstraint ) constraint).getIndex();
+                    if (index != null && index.getConstraintType() == Index.ConstraintType.FORALL_SELF_JOIN) {
+                        return constraint;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private void recursivelyAddConditions(RuleContext ctx, GroupElement group, GroupElement allSubConditions, Condition c) {
@@ -525,7 +552,9 @@ public class KiePackagesBuilder {
     private ConditionalBranch buildConditionalConsequence(RuleContext ctx, ConditionalNamedConsequenceImpl consequence) {
         EvalCondition evalCondition;
         if (consequence.getExpr() != null) {
+
             Pattern pattern = ctx.getPattern(consequence.getExpr().getVariables()[0]);
+
             EvalExpression eval = new LambdaEvalExpression(pattern, consequence.getExpr());
             evalCondition = new EvalCondition(eval, pattern.getRequiredDeclarations());
         } else {
@@ -703,7 +732,8 @@ public class KiePackagesBuilder {
         }
 
         if(accFunction.getSource() instanceof Variable) {
-            return new Declaration[] { ctx.getPattern((Variable) accFunction.getSource()).getDeclaration() };
+            Pattern pattern = ctx.getPattern((Variable) accFunction.getSource());
+            return pattern == null ? new Declaration[0] : new Declaration[] { pattern.getDeclaration() };
         } else {
             return new Declaration[0];
         }

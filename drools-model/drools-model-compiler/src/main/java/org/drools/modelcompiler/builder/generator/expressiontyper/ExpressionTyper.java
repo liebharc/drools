@@ -8,6 +8,7 @@ import java.lang.reflect.TypeVariable;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import com.github.javaparser.ast.Node;
@@ -130,7 +131,9 @@ public class ExpressionTyper {
         Class<?> typeCursor = patternType;
 
         if (drlxExpr instanceof EnclosedExpr) {
-            drlxExpr = ((EnclosedExpr) drlxExpr).getInner();
+            Expression inner = ((EnclosedExpr) drlxExpr).getInner();
+            Optional<TypedExpression> typedExpression = toTypedExpressionRec(inner);
+            return typedExpression.map(t -> t.cloneWithNewExpression(new EnclosedExpr(t.getExpression())));
         }
 
         if (drlxExpr instanceof MethodCallExpr) {
@@ -184,7 +187,7 @@ public class ExpressionTyper {
             return of(new TypedExpression(castExpr, getClassFromContext(ruleContext.getTypeResolver(), castExpr.getType().asString())));
 
         } else if (drlxExpr instanceof NameExpr) {
-            return nameExpr(printConstraint(drlxExpr), typeCursor);
+            return nameExpr(((NameExpr)drlxExpr).getNameAsString(), typeCursor);
         } else if (drlxExpr instanceof FieldAccessExpr || drlxExpr instanceof MethodCallExpr || drlxExpr instanceof ObjectCreationExpr
                 || drlxExpr instanceof NullSafeFieldAccessExpr || drlxExpr instanceof  NullSafeMethodCallExpr) {
             return toTypedExpressionFromMethodCallOrField(drlxExpr).getTypedExpression();
@@ -194,7 +197,7 @@ public class ExpressionTyper {
 
             Optional<TypedExpression> optLeft = toTypedExpressionRec(pointFreeExpr.getLeft());
             Optional<TypedExpression> optRight = pointFreeExpr.getRight().size() == 1 ? toTypedExpressionRec(pointFreeExpr.getRight().get( 0 )) : Optional.empty();
-            OperatorSpec opSpec = getOperatorSpec(drlxExpr, pointFreeExpr.getRight(), pointFreeExpr.getOperator());
+            OperatorSpec opSpec = getOperatorSpec(pointFreeExpr.getRight(), pointFreeExpr.getOperator());
 
             return optLeft.map(left -> new TypedExpression(opSpec.getExpression( ruleContext, pointFreeExpr, left, this), left.getType())
                     .setStatic(opSpec.isStatic())
@@ -207,7 +210,7 @@ public class ExpressionTyper {
             Expression parentLeft = findLeftLeafOfNameExpr(halfPointFreeExpr.getParentNode().orElseThrow(UnsupportedOperationException::new));
 
             Optional<TypedExpression> optLeft = toTypedExpressionRec(parentLeft);
-            OperatorSpec opSpec = getOperatorSpec(drlxExpr, halfPointFreeExpr.getRight(), halfPointFreeExpr.getOperator());
+            OperatorSpec opSpec = getOperatorSpec(halfPointFreeExpr.getRight(), halfPointFreeExpr.getOperator());
 
             final PointFreeExpr transformedToPointFree =
                     new PointFreeExpr(halfPointFreeExpr.getTokenRange().orElseThrow(() -> new IllegalStateException("Token range is not present!")),
@@ -242,7 +245,7 @@ public class ExpressionTyper {
                 final Optional<TypedExpression> nameExpr = nameExpr(name, typeCursor);
                 Expression indexExpr = toTypedExpressionFromMethodCallOrField( arrayAccessExpr.getIndex() )
                         .getTypedExpression()
-                        .orElseThrow(() -> new IllegalStateException("Typed expression is not present!"))
+                        .orElseThrow(() -> new NoSuchElementException("TypedExpressionResult doesn't contain TypedExpression!"))
                         .getExpression();
                 return nameExpr.flatMap( te -> te.isArray() ?
                         createArrayAccessExpression(indexExpr , te.getExpression()) :
@@ -323,7 +326,7 @@ public class ExpressionTyper {
         return empty();
     }
 
-    private OperatorSpec getOperatorSpec( Expression drlxExpr, NodeList<Expression> rightExpressions, SimpleName expressionOperator) {
+    private OperatorSpec getOperatorSpec(NodeList<Expression> rightExpressions, SimpleName expressionOperator) {
         for (Expression rightExpr : rightExpressions) {
             toTypedExpressionRec(rightExpr);
         }
@@ -435,7 +438,8 @@ public class ExpressionTyper {
             } else if (part instanceof ArrayAccessExpr) {
                 final ArrayAccessExpr inlineCastExprPart = (ArrayAccessExpr) part;
                 TypedExpressionCursor typedExpr =
-                        arrayAccessExpr(inlineCastExprPart, typeCursor, previous).orElseThrow(() -> new IllegalStateException("Typed expression is not present!"));
+                        arrayAccessExpr(inlineCastExprPart, typeCursor, previous)
+                                .orElseThrow(() -> new NoSuchElementException("ArrayAccessExpr doesn't contain TypedExpressionCursor!"));
                 typeCursor = typedExpr.typeCursor;
                 previous = typedExpr.expressionCursor;
 
@@ -444,7 +448,17 @@ public class ExpressionTyper {
             }
         }
 
-        return new TypedExpressionResult(of(new TypedExpression(previous, typeCursor, printConstraint(drlxExpr))), context);
+        return new TypedExpressionResult(of(new TypedExpression(previous, typeCursor, accessorToFieldName(drlxExpr))), context);
+    }
+
+    private String accessorToFieldName(Expression drlxExpr) {
+        if (drlxExpr instanceof MethodCallExpr) {
+            MethodCallExpr methodCall = ( MethodCallExpr ) drlxExpr;
+            if (methodCall.getArguments().isEmpty()) {
+                return getter2property( methodCall.getNameAsString() );
+            }
+        }
+        return printConstraint(drlxExpr);
     }
 
     private void addReactOnProperty(String methodName, NodeList<Expression> methodArguments) {
@@ -583,10 +597,17 @@ public class ExpressionTyper {
 
     private TypedExpressionCursor binaryExpr( BinaryExpr binaryExpr ) {
         TypedExpressionResult left = toTypedExpression( binaryExpr.getLeft() );
-        binaryExpr.setLeft( left.getTypedExpression().orElseThrow(() -> new IllegalStateException("Typed expression is not present!")).getExpression() );
+        binaryExpr.setLeft( left.getTypedExpression()
+                                    .orElseThrow(() -> new NoSuchElementException("TypedExpressionResult doesn't contain TypedExpression!"))
+                                    .getExpression() );
         TypedExpressionResult right = toTypedExpression( binaryExpr.getRight() );
-        binaryExpr.setRight( right.getTypedExpression().orElseThrow(() -> new IllegalStateException("Typed expression is not present!")).getExpression() );
-        return new TypedExpressionCursor( binaryExpr, left.getTypedExpression().orElseThrow(() -> new IllegalStateException("Typed expression is not present!")).getType() );
+        binaryExpr.setRight( right.getTypedExpression()
+                                     .orElseThrow(() -> new NoSuchElementException("TypedExpressionResult doesn't contain TypedExpression!"))
+                                     .getExpression() );
+        return new TypedExpressionCursor( binaryExpr,
+                                          left.getTypedExpression()
+                                                  .orElseThrow(() -> new NoSuchElementException("TypedExpressionResult doesn't contain TypedExpression!"))
+                                                  .getType() );
     }
 
     private Optional<TypedExpressionCursor> castExpr( CastExpr firstNode, Expression drlxExpr, List<Node> childNodes, boolean isInLineCast, java.lang.reflect.Type originalTypeCursor ) {
@@ -614,7 +635,6 @@ public class ExpressionTyper {
     }
 
     private TypedExpressionCursor stringLiteralExpr(StringLiteralExpr firstNode) {
-        TypedExpressionCursor teCursor;
         final Class<?> typeCursor = String.class;
         return new TypedExpressionCursor(firstNode, typeCursor);
     }
@@ -666,7 +686,8 @@ public class ExpressionTyper {
         for (int i = 0; i < methodCallExpr.getArguments().size(); i++) {
             Expression arg = methodCallExpr.getArgument( i );
             TypedExpressionResult typedArg = toTypedExpressionFromMethodCallOrField( arg );
-            TypedExpression typedExpr = typedArg.getTypedExpression().orElseThrow(() -> new IllegalStateException("Typed expression is not present!"));
+            TypedExpression typedExpr = typedArg.getTypedExpression()
+                    .orElseThrow(() -> new NoSuchElementException("Node argument doesn't contain typed expression!"));
             argsType[i] = toRawClass( typedExpr.getType() );
             methodCallExpr.setArgument( i, typedExpr.getExpression() );
         }
@@ -715,9 +736,8 @@ public class ExpressionTyper {
         TypedExpressionCursor nameExpr = expressionCursor.get();
         java.lang.reflect.Type arrayType = nameExpr.typeCursor;
         Class<?> rawClass = toRawClass( arrayType );
-        TypedExpression indexExpr = toTypedExpressionFromMethodCallOrField( arrayAccessExpr.getIndex() )
-                .getTypedExpression()
-                .orElseThrow(() -> new IllegalStateException("Typed expression is not present!"));
+        TypedExpression indexExpr = toTypedExpressionFromMethodCallOrField( arrayAccessExpr.getIndex() ).getTypedExpression()
+                .orElseThrow(() -> new NoSuchElementException("TypedExpressionResult doesn't contain TypedExpression!"));
 
         if (rawClass.isArray()) {
             ArrayAccessExpr result = new ArrayAccessExpr( nameExpr.expressionCursor, indexExpr.getExpression() );
@@ -737,9 +757,11 @@ public class ExpressionTyper {
         if (optInit.isPresent()) {
             NodeList<Expression> values = optInit.get().getValues();
             for (int i = 0; i < values.size(); i++) {
-                values.set( i, toTypedExpressionFromMethodCallOrField( values.get(i) )
-                        .getTypedExpression()
-                        .orElseThrow(() -> new IllegalStateException("Typed expression is not present!")).getExpression() );
+                values.set( i,
+                            toTypedExpressionFromMethodCallOrField( values.get(i) )
+                                    .getTypedExpression()
+                                    .orElseThrow(() -> new NoSuchElementException("TypedExpressionResult doesn't contain TypedExpression!"))
+                                    .getExpression() );
             }
         }
 

@@ -1,6 +1,5 @@
 package org.kie.dmn.core.compiler;
 
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -10,6 +9,7 @@ import java.util.stream.Collectors;
 
 import javax.xml.namespace.QName;
 
+import org.kie.api.io.Resource;
 import org.kie.dmn.api.core.AfterGeneratingSourcesListener;
 import org.kie.dmn.api.core.DMNMessage;
 import org.kie.dmn.api.core.DMNType;
@@ -41,6 +41,7 @@ import org.kie.dmn.core.util.Msg;
 import org.kie.dmn.core.util.MsgUtil;
 import org.kie.dmn.feel.FEEL;
 import org.kie.dmn.feel.lang.CompiledExpression;
+import org.kie.dmn.feel.lang.impl.RootExecutionFrame;
 import org.kie.dmn.feel.runtime.FEELFunction;
 import org.kie.dmn.feel.runtime.UnaryTest;
 import org.kie.dmn.feel.runtime.decisiontables.DTDecisionRule;
@@ -187,6 +188,29 @@ public class DMNEvaluatorCompiler {
             return null;
         }
         String functionName = ((LiteralExpression) invocation.getExpression()).getText();
+        String[] fnameParts = functionName.split("\\.");
+        Optional<DMNNode> findAsDep = Optional.empty();
+        if (fnameParts.length == 2) {
+            QName importAlias = model.getImportNamespaceAndNameforAlias(fnameParts[0]);
+            findAsDep = node.getDependencies().values().stream().filter(d -> d.getModelNamespace().equals(importAlias.getNamespaceURI()) && d.getName().equals(fnameParts[1])).findAny();
+        } else {
+            findAsDep = node.getDependencies().values().stream().filter(d -> d.getName().equals(functionName)).findAny();
+        }
+        boolean findAsBuiltin = RootExecutionFrame.INSTANCE.getValue(functionName) != null;
+        boolean findAsCustomFunction = ctx.getFeelHelper().newCompilerContext().getFEELFunctions().stream().anyMatch(f -> f.getName().equals(functionName));
+        boolean findInContext = ctx.getVariables().get(functionName) != null;
+        if (!findAsDep.isPresent() && !findAsBuiltin && !findAsCustomFunction && !findInContext) {
+            MsgUtil.reportMessage(logger,
+                                  DMNMessage.Severity.WARN,
+                                  invocation,
+                                  model,
+                                  null,
+                                  null,
+                                  Msg.EXPRESSION_FOR_INVOCATION_NOT_RESOLVED,
+                                  functionName,
+                                  node.getIdentifierString(),
+                                  node.getDependencies().values().stream().map(DMNNode::getName).collect(Collectors.toList()));
+        }
         DMNInvocationEvaluator invEval = new DMNInvocationEvaluator(node.getName(), node.getSource(), functionName, invocation, null, ctx.getFeelHelper().newFEELInstance());
         for ( Binding binding : invocation.getBinding() ) {
             if( binding.getParameter() == null ) {
@@ -483,8 +507,8 @@ public class DMNEvaluatorCompiler {
             if (lookupImport.isPresent()) {
                 Import theImport = lookupImport.get();
                 logger.trace("theImport: {}", theImport);
-                URL pmmlURL = DMNCompilerImpl.pmmlImportURL(getRootClassLoader(), model, theImport, funcDef);
-                logger.trace("pmmlURL: {}", pmmlURL);
+                Resource pmmlResource = DMNCompilerImpl.resolveRelativeResource(getRootClassLoader(), model, theImport, funcDef, ctx.getRelativeResolver());
+                logger.trace("pmmlResource: {}", pmmlResource);
                 DMNImportPMMLInfo pmmlInfo = model.getPmmlImportInfo().get(pmmlDocument);
                 logger.trace("pmmlInfo: {}", pmmlInfo);
                 if (pmmlModel == null || pmmlModel.isEmpty()) {
@@ -507,7 +531,7 @@ public class DMNEvaluatorCompiler {
                 AbstractPMMLInvocationEvaluator invoker = PMMLInvocationEvaluatorFactory.newInstance(model,
                                                                                                      getRootClassLoader(),
                                                                                                      funcDef,
-                                                                                                     pmmlURL,
+                                                                                                     pmmlResource,
                                                                                                      pmmlModel,
                                                                                                      pmmlInfo);
                 DMNFunctionDefinitionEvaluator func = new DMNFunctionDefinitionEvaluator(node.getName(), funcDef);

@@ -44,7 +44,7 @@ public class SingleConstraint7<A, B, C, D, E, F, G> extends AbstractSingleConstr
 
     public SingleConstraint7( Expr7ViewItemImpl<A, B, C, D, E, F, G> expr) {
         this(expr.getExprId(), expr.getFirstVariable(), expr.getVar2(), expr.getVar3(), expr.getVar4(), expr.getVar5(), expr.getVar6(), expr.getVar7(), expr.getPredicate());
-        setReactiveProps( expr.getReactiveProps() );
+        setReactivitySpecs( expr.getReactivitySpecs() );
     }
 
     @Override
@@ -74,5 +74,36 @@ public class SingleConstraint7<A, B, C, D, E, F, G> extends AbstractSingleConstr
         if ( !ModelComponent.areEqualInModel( var6, that.var6 ) ) return false;
         if ( !ModelComponent.areEqualInModel( var7, that.var7 ) ) return false;
         return predicate.equals( that.predicate );
+    }
+
+    @Override
+    public SingleConstraint7<A, B, C, D, E, F, G> negate() {
+        return negate( new SingleConstraint7<>("!" + getExprId(), var1, var2, var3, var4, var5, var6, var7, predicate.negate()) );
+    }
+
+    @Override
+    public SingleConstraint7<A, B, C, D, E, F, G> replaceVariable( Variable oldVar, Variable newVar ) {
+        if (var1 == oldVar) {
+            return new SingleConstraint7<>(getExprId(), newVar, var2, var3, var4, var5, var6, var7, predicate);
+        }
+        if (var2 == oldVar) {
+            return new SingleConstraint7<>(getExprId(), var1, newVar, var3, var4, var5, var6, var7, predicate);
+        }
+        if (var3 == oldVar) {
+            return new SingleConstraint7<>(getExprId(), var1, var2, newVar, var4, var5, var6, var7, predicate);
+        }
+        if (var4 == oldVar) {
+            return new SingleConstraint7<>(getExprId(), var1, var2, var3, newVar, var5, var6, var7, predicate);
+        }
+        if (var5 == oldVar) {
+            return new SingleConstraint7<>(getExprId(), var1, var2, var3, var4, newVar, var6, var7, predicate);
+        }
+        if (var6 == oldVar) {
+            return new SingleConstraint7<>(getExprId(), var1, var2, var3, var4, var5, newVar, var7, predicate);
+        }
+        if (var7 == oldVar) {
+            return new SingleConstraint7<>(getExprId(), var1, var2, var3, var4, var5, var6, newVar, predicate);
+        }
+        return this;
     }
 }

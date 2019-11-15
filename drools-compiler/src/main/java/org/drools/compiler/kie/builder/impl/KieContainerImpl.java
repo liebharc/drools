@@ -248,6 +248,8 @@ public class KieContainerImpl
 
         final ResultsImpl results = new ResultsImpl();
 
+        currentKM.updateKieModule(newKM);
+
         List<String> kbasesToRemove = new ArrayList<String>();
         for ( Entry<String, KieBase> kBaseEntry : kBases.entrySet() ) {
             String kbaseName = kBaseEntry.getKey();
@@ -472,7 +474,7 @@ public class KieContainerImpl
         return kBase == null ? null : new StatefulSessionPool(kBase, initialSize, () -> {
             SessionConfiguration sessConf = conf != null ? (SessionConfiguration) conf : kBase.getSessionConfiguration();
             StatefulKnowledgeSessionImpl kSession = stateless ?
-                    kBase.internalCreateStatefulKnowledgeSession( env, sessConf ).setStateless( true ) :
+                    kBase.internalCreateStatefulKnowledgeSession( env, sessConf, false ).setStateless( true ) :
                     (StatefulKnowledgeSessionImpl) kBase.newKieSession( sessConf, env );
             registerNewKieSession( kSessionModel, ( InternalKnowledgeBase ) kBase, kSession );
             return kSession;

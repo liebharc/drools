@@ -3,6 +3,7 @@ package org.drools.model.constraints;
 import java.util.Collections;
 import java.util.List;
 
+import org.drools.model.BitMask;
 import org.drools.model.Constraint;
 import org.drools.model.Index;
 import org.drools.model.SingleConstraint;
@@ -17,7 +18,7 @@ public abstract class AbstractSingleConstraint extends AbstractConstraint implem
 
     private Index index;
 
-    private String[] reactiveProps;
+    private ReactivitySpecs reactivitySpecs = ReactivitySpecs.EMPTY;
 
     protected AbstractSingleConstraint(String exprId) {
         this.exprId = exprId;
@@ -39,11 +40,16 @@ public abstract class AbstractSingleConstraint extends AbstractConstraint implem
 
     @Override
     public String[] getReactiveProps() {
-        return reactiveProps;
+        return reactivitySpecs.getProps();
     }
 
-    public void setReactiveProps( String[] reactiveProps ) {
-        this.reactiveProps = reactiveProps;
+    @Override
+    public BitMask getReactivityBitMask() {
+        return reactivitySpecs.getBitMask();
+    }
+
+    public void setReactivitySpecs( ReactivitySpecs reactivitySpecs ) {
+        this.reactivitySpecs = reactivitySpecs;
     }
 
     @Override
@@ -53,7 +59,7 @@ public abstract class AbstractSingleConstraint extends AbstractConstraint implem
 
     @Override
     public String toString() {
-        return "Constraint for " + exprId;
+        return "Constraint for '" + exprId + "' (index: " + index + ")";
     }
 
     public static AbstractSingleConstraint fromExpr( ExprViewItem expr ) {
@@ -64,5 +70,13 @@ public abstract class AbstractSingleConstraint extends AbstractConstraint implem
             return new SingleConstraint2( (Expr2ViewItemImpl) expr );
         }
         throw new UnsupportedOperationException( "Unknown expr: " + expr );
+    }
+
+    protected <T extends AbstractSingleConstraint> T negate(T negated) {
+        if ( index != null ) {
+            negated.setIndex( index.negate() );
+        }
+        negated.setReactivitySpecs( reactivitySpecs );
+        return negated;
     }
 }

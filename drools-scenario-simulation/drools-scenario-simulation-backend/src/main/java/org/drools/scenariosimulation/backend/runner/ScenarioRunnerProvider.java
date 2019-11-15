@@ -15,16 +15,12 @@
  */
 package org.drools.scenariosimulation.backend.runner;
 
-import java.util.List;
-
-import org.drools.scenariosimulation.api.model.ScenarioWithIndex;
-import org.drools.scenariosimulation.api.model.SimulationDescriptor;
+import org.drools.scenariosimulation.backend.runner.model.ScenarioRunnerDTO;
 import org.kie.api.runtime.KieContainer;
 
 @FunctionalInterface
 public interface ScenarioRunnerProvider {
 
     AbstractScenarioRunner create(KieContainer kieContainer,
-                                  SimulationDescriptor simulationDescriptor,
-                                  List<ScenarioWithIndex> scenarios);
+                                  ScenarioRunnerDTO scenarioRunnerDTO);
 }

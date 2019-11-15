@@ -7,7 +7,7 @@
   <parent>
     <artifactId>kie-dmn</artifactId>
     <groupId>org.kie</groupId>
-    <version>7.26.0-SNAPSHOT</version>
+    <version>7.30.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>kie-dmn-core</artifactId>
@@ -27,6 +27,13 @@
         <version>${version.org.kie}</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.kie</groupId>
+        <artifactId>kie-dmn-feel</artifactId>
+        <version>${version.org.kie}</version>
+        <classifier>tests</classifier>
+        <scope>test</scope>
       </dependency>
     </dependencies>
   </dependencyManagement>
@@ -129,6 +136,22 @@
     <dependency>
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.kie</groupId>
+      <artifactId>kie-dmn-feel</artifactId>
+      <classifier>tests</classifier>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss</groupId>
+      <artifactId>jandex</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse</groupId>
+      <artifactId>yasson</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

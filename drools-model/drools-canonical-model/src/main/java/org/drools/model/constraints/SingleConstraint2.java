@@ -30,7 +30,7 @@ public class SingleConstraint2<A, B> extends AbstractSingleConstraint {
     public SingleConstraint2(Expr2ViewItemImpl<A, B> expr) {
         this( expr.getExprId(), expr.getFirstVariable(), expr.getVar2(), expr.getPredicate() );
         setIndex( expr.getIndex() );
-        setReactiveProps( expr.getReactiveProps() );
+        setReactivitySpecs( expr.getReactivitySpecs() );
     }
 
     @Override
@@ -53,5 +53,21 @@ public class SingleConstraint2<A, B> extends AbstractSingleConstraint {
         if ( !ModelComponent.areEqualInModel( var1, that.var1 ) ) return false;
         if ( !ModelComponent.areEqualInModel( var2, that.var2 ) ) return false;
         return predicate.equals( that.predicate );
+    }
+
+    @Override
+    public SingleConstraint2<A, B> negate() {
+        return negate( new SingleConstraint2<>("!" + getExprId(), var1, var2, predicate.negate()) );
+    }
+
+    @Override
+    public SingleConstraint2<A, B> replaceVariable( Variable oldVar, Variable newVar ) {
+        if (var1 == oldVar) {
+            return new SingleConstraint2<>(getExprId(), newVar, var2, predicate);
+        }
+        if (var2 == oldVar) {
+            return new SingleConstraint2<>(getExprId(), var1, newVar, predicate);
+        }
+        return this;
     }
 }

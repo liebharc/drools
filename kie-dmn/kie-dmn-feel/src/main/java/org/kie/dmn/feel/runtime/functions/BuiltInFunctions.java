@@ -74,13 +74,17 @@ public class BuiltInFunctions {
             SplitFunction.INSTANCE,
             StddevFunction.INSTANCE,
             ModeFunction.INSTANCE,
-            AbsFunction.INSTANCE,
             SqrtFunction.INSTANCE,
             LogFunction.INSTANCE,
             ExpFunction.INSTANCE,
             EvenFunction.INSTANCE,
             OddFunction.INSTANCE,
             MedianFunction.INSTANCE,
+            
+            DayOfWeekFunction.INSTANCE,
+            DayOfYearFunction.INSTANCE,
+            MonthOfYearFunction.INSTANCE,
+            WeekOfYearFunction.INSTANCE,
             };
 
     public static FEELFunction[] getFunctions() {

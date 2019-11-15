@@ -28,19 +28,23 @@ import org.drools.compiler.builder.impl.KnowledgeBuilderImpl;
 import org.drools.compiler.builder.impl.TypeDeclarationFactory;
 import org.drools.compiler.compiler.DialectCompiletimeRegistry;
 import org.drools.compiler.compiler.PackageRegistry;
+import org.drools.compiler.lang.descr.AbstractClassTypeDeclarationDescr;
 import org.drools.compiler.lang.descr.CompositePackageDescr;
+import org.drools.compiler.lang.descr.EnumDeclarationDescr;
 import org.drools.compiler.lang.descr.PackageDescr;
 import org.drools.compiler.lang.descr.TypeDeclarationDescr;
 import org.drools.core.definitions.InternalKnowledgePackage;
 import org.drools.core.rule.TypeDeclaration;
 import org.drools.modelcompiler.builder.generator.DRLIdGenerator;
 import org.drools.modelcompiler.builder.generator.DrlxParseUtil;
+import org.drools.modelcompiler.builder.generator.declaredtype.POJOGenerator;
 import org.kie.api.builder.ReleaseId;
+import org.kie.internal.builder.ResultSeverity;
 
+import static org.drools.compiler.builder.impl.ClassDefinitionFactory.createClassDefinition;
 import static org.drools.modelcompiler.builder.generator.ModelGenerator.generateModel;
-import static org.drools.modelcompiler.builder.generator.POJOGenerator.compileType;
-import static org.drools.modelcompiler.builder.generator.POJOGenerator.generatePOJO;
-import static org.drools.modelcompiler.builder.generator.POJOGenerator.registerType;
+import static org.drools.modelcompiler.builder.generator.declaredtype.POJOGenerator.compileType;
+import static org.drools.modelcompiler.builder.generator.declaredtype.POJOGenerator.registerType;
 
 public class ModelBuilderImpl extends KnowledgeBuilderImpl {
 
@@ -49,6 +53,7 @@ public class ModelBuilderImpl extends KnowledgeBuilderImpl {
     private final Map<String, PackageModel> packageModels = new HashMap<>();
     private final ReleaseId releaseId;
     private boolean isPattern = false;
+    private final Collection<PackageSources> packageSources = new ArrayList<>();
 
     public ModelBuilderImpl(KnowledgeBuilderConfigurationImpl configuration, ReleaseId releaseId, boolean isPattern) {
         super(configuration);
@@ -71,12 +76,31 @@ public class ModelBuilderImpl extends KnowledgeBuilderImpl {
         for (CompositePackageDescr packageDescr : packages) {
             InternalKnowledgePackage pkg = getOrCreatePackageRegistry(packageDescr).getPackage();
             for (TypeDeclarationDescr typeDescr : packageDescr.getTypeDeclarations()) {
-                normalizeAnnotations(typeDescr, pkg.getTypeResolver(), false);
-                TypeDeclaration type = new TypeDeclaration( typeDescr.getTypeName() );
-                type.setResource( typeDescr.getResource() );
-                TypeDeclarationFactory.processAnnotations(typeDescr, type);
-                pkg.addTypeDeclaration( type );
+                processTypeDeclarationDescr(pkg, typeDescr);
             }
+            for (EnumDeclarationDescr enumDeclarationDescr : packageDescr.getEnumDeclarations()) {
+                processTypeDeclarationDescr(pkg, enumDeclarationDescr);
+            }
+        }
+    }
+
+    private void processTypeDeclarationDescr(InternalKnowledgePackage pkg, AbstractClassTypeDeclarationDescr typeDescr) {
+        normalizeAnnotations(typeDescr, pkg.getTypeResolver(), false);
+        try {
+            Class<?> typeClass = pkg.getTypeResolver().resolveType( typeDescr.getTypeName() );
+            String typePkg = typeClass.getPackage().getName();
+            String typeName = typeClass.getName().substring( typePkg.length() + 1 );
+            TypeDeclaration type = new TypeDeclaration(typeName );
+            type.setTypeClass( typeClass );
+            type.setResource( typeDescr.getResource() );
+            type.setTypeClassDef( createClassDefinition( typeClass, typeDescr.getResource() ) );
+            TypeDeclarationFactory.processAnnotations(typeDescr, type);
+            getOrCreatePackageRegistry(new PackageDescr(typePkg)).getPackage().addTypeDeclaration(type );
+        } catch (ClassNotFoundException e) {
+            TypeDeclaration type = new TypeDeclaration( typeDescr.getTypeName() );
+            type.setResource( typeDescr.getResource() );
+            TypeDeclarationFactory.processAnnotations(typeDescr, type);
+            pkg.addTypeDeclaration( type );
         }
     }
 
@@ -96,6 +120,11 @@ public class ModelBuilderImpl extends KnowledgeBuilderImpl {
             PackageRegistry pkgRegistry = getPackageRegistry(packageDescr.getNamespace());
             compileKnowledgePackages(packageDescr, pkgRegistry);
             setAssetFilter(null);
+
+            PackageModel pkgModel = packageModels.remove( pkgRegistry.getPackage().getName() );
+            if (getResults( ResultSeverity.ERROR ).isEmpty()) {
+                packageSources.add( PackageSources.dumpSources( pkgModel ) );
+            }
         }
     }
 
@@ -132,7 +161,7 @@ public class ModelBuilderImpl extends KnowledgeBuilderImpl {
             return new PackageModel(releaseId, pkgName, this.getBuilderConfiguration(), isPattern, dialectCompiletimeRegistry, exprIdGenerator);
         });
         model.addImports(pkg.getTypeResolver().getImports());
-        generatePOJO(this, pkg, packageDescr, model);
+        new POJOGenerator(this, pkg, packageDescr, model).generatePOJO();
     }
 
     @Override
@@ -147,7 +176,7 @@ public class ModelBuilderImpl extends KnowledgeBuilderImpl {
         generateModel(this, pkg, packageDescr, model, isPattern);
     }
 
-    public List<PackageModel> getPackageModels() {
-        return new ArrayList<>(packageModels.values());
+    public Collection<PackageSources> getPackageSources() {
+        return packageSources;
     }
 }

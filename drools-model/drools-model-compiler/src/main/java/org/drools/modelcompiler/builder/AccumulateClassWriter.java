@@ -17,17 +17,17 @@
 
 package org.drools.modelcompiler.builder;
 
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 
 public class AccumulateClassWriter {
 
-    protected final ClassOrInterfaceDeclaration generatedPojo;
+    protected final TypeDeclaration generatedPojo;
     protected final PackageModel pkgModel;
     private final GeneratedClassWithPackage generatedClassWithPackage;
     private final String name;
 
     public AccumulateClassWriter(GeneratedClassWithPackage pojo, PackageModel packageModel) {
-        ClassOrInterfaceDeclaration genClass = pojo.getGeneratedClass();
+        TypeDeclaration genClass = pojo.getGeneratedClass();
         this.generatedPojo = genClass;
         this.name = genClass.getNameAsString();
         this.pkgModel = packageModel;
@@ -35,13 +35,11 @@ public class AccumulateClassWriter {
     }
 
     public String getSource() {
-        String source = JavaParserCompiler.toPojoSource(
+        return JavaParserCompiler.toPojoSource(
                 pkgModel.getName(),
                 generatedClassWithPackage.getImports(),
                 pkgModel.getStaticImports(),
                 generatedClassWithPackage.getGeneratedClass());
-        pkgModel.logRule(source);
-        return source;
     }
 
     public String getName() {

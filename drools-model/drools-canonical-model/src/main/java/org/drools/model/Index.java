@@ -14,7 +14,28 @@ public interface Index<A, V> {
         GREATER_OR_EQUAL,
         LESS_THAN,
         LESS_OR_EQUAL,
-        RANGE
+        RANGE,
+        FORALL_SELF_JOIN,
+        UNKNOWN;
+
+        public ConstraintType negate() {
+            switch (this) {
+                case FORALL_SELF_JOIN:
+                case EQUAL:
+                    return NOT_EQUAL;
+                case NOT_EQUAL:
+                    return EQUAL;
+                case GREATER_THAN:
+                    return LESS_OR_EQUAL;
+                case GREATER_OR_EQUAL:
+                    return LESS_THAN;
+                case LESS_OR_EQUAL:
+                    return GREATER_THAN;
+                case LESS_THAN:
+                    return GREATER_OR_EQUAL;
+            }
+            return UNKNOWN;
+        }
     }
 
     IndexType getIndexType();
@@ -26,4 +47,6 @@ public interface Index<A, V> {
     int getIndexId();
 
     Function1<A, V> getLeftOperandExtractor();
+
+    Index<A, V> negate();
 }

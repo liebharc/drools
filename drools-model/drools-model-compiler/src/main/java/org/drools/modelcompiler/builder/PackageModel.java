@@ -38,6 +38,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.InitializerDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.comments.JavadocComment;
 import com.github.javaparser.ast.expr.ClassExpr;
@@ -53,6 +54,7 @@ import org.drools.compiler.builder.impl.KnowledgeBuilderConfigurationImpl;
 import org.drools.compiler.compiler.DialectCompiletimeRegistry;
 import org.drools.compiler.lang.descr.EntryPointDeclarationDescr;
 import org.drools.core.definitions.InternalKnowledgePackage;
+import org.drools.model.DomainClassMetadata;
 import org.drools.model.Global;
 import org.drools.model.Model;
 import org.drools.model.Rule;
@@ -63,28 +65,30 @@ import org.drools.modelcompiler.builder.generator.QueryGenerator;
 import org.drools.modelcompiler.builder.generator.QueryParameter;
 import org.kie.api.builder.ReleaseId;
 import org.kie.api.runtime.rule.AccumulateFunction;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import static java.util.stream.Collectors.joining;
 
 import static com.github.javaparser.StaticJavaParser.parseBodyDeclaration;
 import static com.github.javaparser.ast.Modifier.finalModifier;
 import static com.github.javaparser.ast.Modifier.publicModifier;
 import static com.github.javaparser.ast.Modifier.staticModifier;
-import static java.util.stream.Collectors.joining;
 import static org.drools.core.util.StringUtils.generateUUID;
+import static org.drools.model.bitmask.BitMaskUtil.getAccessibleProperties;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.toClassOrInterfaceType;
 import static org.drools.modelcompiler.builder.generator.DrlxParseUtil.toVar;
 import static org.drools.modelcompiler.builder.generator.DslMethodNames.GLOBAL_OF_CALL;
+import static org.drools.modelcompiler.util.ClassUtil.asJavaSourceName;
 import static org.drools.modelcompiler.util.StringUtil.md5Hash;
 
 public class PackageModel {
-
-    private static final Logger logger          = LoggerFactory.getLogger(PackageModel.class);
 
     public static final String DATE_TIME_FORMATTER_FIELD = "DATE_TIME_FORMATTER";
     public static final String STRING_TO_DATE_METHOD = "string_2_date";
 
     private static final String RULES_FILE_NAME = "Rules";
+
+    public static final String DOMAIN_CLASSESS_METADATA_FILE_NAME = "DomainClassesMetadata";
+    public static final String DOMAIN_CLASS_METADATA_INSTANCE = "_Metadata_INSTANCE";
 
     private static final int RULES_DECLARATION_PER_CLASS = 1000;
 
@@ -113,8 +117,10 @@ public class PackageModel {
 
     private List<MethodDeclaration> functions = new ArrayList<>();
 
-    private List<ClassOrInterfaceDeclaration> generatedPOJOs = new ArrayList<>();
+    private List<TypeDeclaration> generatedPOJOs = new ArrayList<>();
     private List<GeneratedClassWithPackage> generatedAccumulateClasses = new ArrayList<>();
+
+    private Set<Class<?>> domainClasses = new HashSet<>();
 
     private List<Expression> typeMetaDataExpressions = new ArrayList<>();
 
@@ -142,6 +148,10 @@ public class PackageModel {
 
     public String getPackageUUID() {
         return pkgUUID;
+    }
+
+    public String getDomainClassName( Class<?> clazz ) {
+        return DOMAIN_CLASSESS_METADATA_FILE_NAME + getPackageUUID() + "." + asJavaSourceName( clazz ) + DOMAIN_CLASS_METADATA_INSTANCE;
     }
 
     public String getRulesFileName() {
@@ -277,11 +287,11 @@ public class PackageModel {
         this.functions.addAll(functions);
     }
 
-    public void addGeneratedPOJO(ClassOrInterfaceDeclaration pojo) {
+    public void addGeneratedPOJO(TypeDeclaration pojo) {
         this.generatedPOJOs.add(pojo);
     }
 
-    public List<ClassOrInterfaceDeclaration> getGeneratedPOJOsSource() {
+    public List<TypeDeclaration> getGeneratedPOJOsSource() {
         return generatedPOJOs;
     }
 
@@ -615,19 +625,58 @@ public class PackageModel {
         field.getVariables().get(0).setInitializer(declarationOfCall);
     }
 
-    public void logRule(String source) {
-        if ( logger.isDebugEnabled() ) {
-            logger.debug( "=====" );
-            logger.debug( source );
-            logger.debug( "=====" );
-        }
-    }
-
     public void addAccumulateFunctions(Map<String, AccumulateFunction> accumulateFunctions) {
         this.accumulateFunctions = accumulateFunctions;
     }
 
     public boolean hasDeclaration(String id) {
         return globals.get(id) != null;
+    }
+
+    public boolean registerDomainClass(Class<?> domainClass) {
+        if (!domainClass.isPrimitive() && !domainClass.isArray()) {
+            domainClasses.add( domainClass );
+            return true;
+        }
+        return false;
+    }
+
+    public String getDomainClassesMetadataSource() {
+        StringBuilder sb = new StringBuilder(
+                "package " + name + ";\n" +
+                "public class " + DOMAIN_CLASSESS_METADATA_FILE_NAME  + pkgUUID + " {\n\n"
+        );
+        for (Class<?> domainClass : domainClasses) {
+            String domainClassSourceName = asJavaSourceName( domainClass );
+            List<String> accessibleProperties = getAccessibleProperties( domainClass );
+            sb.append( "    public static final " + DomainClassMetadata.class.getCanonicalName() + " " + domainClassSourceName + DOMAIN_CLASS_METADATA_INSTANCE + " = new " + domainClassSourceName+ "_Metadata();\n" );
+            sb.append( "    private static class " + domainClassSourceName + "_Metadata implements " + DomainClassMetadata.class.getCanonicalName() + " {\n\n" );
+            sb.append(
+                    "        @Override\n" +
+                    "        public Class<?> getDomainClass() {\n" +
+                    "            return " + domainClass.getCanonicalName() + ".class;\n" +
+                    "        }\n" +
+                    "\n" +
+                    "        @Override\n" +
+                    "        public int getPropertiesSize() {\n" +
+                    "            return " + accessibleProperties.size() + ";\n" +
+                    "        }\n\n" +
+                    "        @Override\n" +
+                    "        public int getPropertyIndex( String name ) {\n" +
+                    "            switch(name) {\n"
+            );
+            for (int i = 0; i < accessibleProperties.size(); i++) {
+                sb.append( "                case \"" + accessibleProperties.get(i) + "\": return " + i + ";\n" );
+            }
+            sb.append(
+                    "             }\n" +
+                    "             throw new RuntimeException(\"Unknown property '\" + name + \"' for class class " + domainClass + "\");\n" +
+                    "        }\n" +
+                    "    }\n\n"
+            );
+        }
+        sb.append( "}" );
+
+        return sb.toString();
     }
 }

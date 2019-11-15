@@ -86,9 +86,9 @@ public class ReteooBuilder
      */
     public ReteooBuilder( final InternalKnowledgeBase  kBase ) {
         this.kBase = kBase;
-        this.rules = new HashMap<String, BaseNode[]>();
-        this.queries = new HashMap<String, BaseNode[]>();
-        this.namedWindows = new HashMap<String, WindowNode>();
+        this.rules = new HashMap<>();
+        this.queries = new HashMap<>();
+        this.namedWindows = new HashMap<>();
 
         //Set to 1 as Rete node is set to 0
         this.idGenerator = new IdGenerator();
@@ -106,7 +106,7 @@ public class ReteooBuilder
      *            The rule to add.
      * @throws InvalidPatternException
      */
-    public synchronized void addRule(final RuleImpl rule) throws InvalidPatternException {
+    public synchronized void addRule(final RuleImpl rule) {
         final List<TerminalNode> terminals = this.ruleBuilder.addRule( rule,
                                                                        this.kBase );
 
@@ -191,18 +191,18 @@ public class ReteooBuilder
         AddRemoveRule.removeRule( tn, workingMemories, kBase );
 
         BaseNode node = (BaseNode) tn;
-        removeNodeAssociation(node, context.getRule());
+        removeNodeAssociation(node, context.getRule(), new HashSet<>());
 
         resetMasks(removeNodes((AbstractTerminalNode)tn, workingMemories, context));
     }
 
     private Collection<BaseNode> removeNodes(AbstractTerminalNode terminalNode, Collection<InternalWorkingMemory> wms, RuleRemovalContext context) {
-        Map<Integer, BaseNode> stillInUse = new HashMap<Integer, BaseNode>();
-        Collection<ObjectSource> alphas = new HashSet<ObjectSource>();
+        Map<Integer, BaseNode> stillInUse = new HashMap<>();
+        Collection<ObjectSource> alphas = new HashSet<>();
 
         removePath(wms, context, stillInUse, alphas, terminalNode);
 
-        Set<Integer> removedNodes = new HashSet<Integer>();
+        Set<Integer> removedNodes = new HashSet<>();
         for (ObjectSource alpha : alphas) {
             removeObjectSource( wms, stillInUse, removedNodes, alpha, context );
         }
@@ -287,19 +287,19 @@ public class ReteooBuilder
         }
     }
 
-    private void removeNodeAssociation(BaseNode node, Rule rule) {
-        if (node == null || !node.removeAssociation( rule )) {
+    private void removeNodeAssociation(BaseNode node, Rule rule, Set<Integer> removedNodes) {
+        if (node == null || !removedNodes.add( node.getId() ) || !node.removeAssociation( rule )) {
             return;
         }
         if (node instanceof LeftTupleNode) {
-            removeNodeAssociation( ((LeftTupleNode)node).getLeftTupleSource(), rule );
+            removeNodeAssociation( ((LeftTupleNode)node).getLeftTupleSource(), rule, removedNodes );
         }
         if ( NodeTypeEnums.isBetaNode( node ) ) {
-            removeNodeAssociation( ((BetaNode) node).getRightInput(), rule );
+            removeNodeAssociation( ((BetaNode) node).getRightInput(), rule, removedNodes );
         } else if ( node.getType() == NodeTypeEnums.LeftInputAdapterNode ) {
-            removeNodeAssociation( ((LeftInputAdapterNode) node).getObjectSource(), rule );
+            removeNodeAssociation( ((LeftInputAdapterNode) node).getObjectSource(), rule, removedNodes );
         } else if ( node.getType() == NodeTypeEnums.AlphaNode ) {
-            removeNodeAssociation( ((AlphaNode) node).getParentObjectSource(), rule );
+            removeNodeAssociation( ((AlphaNode) node).getParentObjectSource(), rule, removedNodes );
         }
     }
 
@@ -361,10 +361,8 @@ public class ReteooBuilder
                     updateLeafSet( ( BaseNode ) sink, leafSet );
                 }
             }
-        } else if ( NodeTypeEnums.isBetaNode( baseNode ) ) {
-            if ( baseNode.isInUse() ) {
-                leafSet.add( baseNode );
-            }
+        } else if ( NodeTypeEnums.isBetaNode( baseNode ) && ( baseNode.isInUse() )) {
+            leafSet.add( baseNode );
         }
     }
 
@@ -390,7 +388,7 @@ public class ReteooBuilder
             return generators.computeIfAbsent( topic, key -> new InternalIdGenerator( 1 ) ).getNextId();
         }
 
-        public synchronized void releaseId( RuleImpl rule, NetworkNode node ) {
+        public synchronized void releaseId(NetworkNode node) {
             defaultGenerator.releaseId( node.getId() );
             if (node instanceof MemoryFactory) {
                 generators.get( DEFAULT_RULE_UNIT ).releaseId( ( (MemoryFactory) node ).getMemoryId() );
@@ -418,7 +416,7 @@ public class ReteooBuilder
 
         public InternalIdGenerator(final int firstId) {
             this.nextId = firstId;
-            this.recycledIds = new LinkedList<Integer>();
+            this.recycledIds = new LinkedList<>();
         }
 
         @SuppressWarnings("unchecked")
@@ -447,62 +445,53 @@ public class ReteooBuilder
     }
 
     public void writeExternal(ObjectOutput out) throws IOException {
-        boolean isDrools = out instanceof DroolsObjectOutputStream;
-        DroolsObjectOutputStream droolsStream = null;
-        ByteArrayOutputStream bytes = null;
+        DroolsObjectOutputStream droolsStream;
+        ByteArrayOutputStream bytes;
+
+        if ( out instanceof DroolsObjectOutputStream ) {
+            bytes = null;
+            droolsStream = (DroolsObjectOutputStream) out;
+        } else {
+            bytes = new ByteArrayOutputStream();
+            droolsStream = new DroolsObjectOutputStream( bytes );
+        }
         try {
-            if ( isDrools ) {
-                bytes = null;
-                droolsStream = (DroolsObjectOutputStream) out;
-            } else {
-                bytes = new ByteArrayOutputStream();
-                droolsStream = new DroolsObjectOutputStream( bytes );
-            }
             droolsStream.writeObject( rules );
             droolsStream.writeObject( queries );
             droolsStream.writeObject( namedWindows );
             droolsStream.writeObject( idGenerator );
         } finally {
-            if ( !isDrools ) {
-                if (droolsStream != null) {
-                    droolsStream.flush();
-                    droolsStream.close();
-                }
-                if (bytes != null) {
-                    bytes.close();
-                    out.writeInt(bytes.size());
-                    out.writeObject(bytes.toByteArray());
-                }
+            if ( bytes != null ) {
+                droolsStream.flush();
+                droolsStream.close();
+                bytes.close();
+                out.writeInt( bytes.size() );
+                out.writeObject( bytes.toByteArray() );
             }
         }
     }
 
     public void readExternal(ObjectInput in) throws IOException,
                                                     ClassNotFoundException {
-        boolean isDrools = in instanceof DroolsObjectInputStream;
-        DroolsObjectInputStream droolsStream = null;
-        ByteArrayInputStream bytes = null;
-        try {
-            if ( isDrools ) {
-                bytes = null;
-                droolsStream = (DroolsObjectInputStream) in;
-            } else {
-                bytes = new ByteArrayInputStream( (byte[]) in.readObject() );
-                droolsStream = new DroolsObjectInputStream( bytes );
-            }
+        DroolsObjectInputStream droolsStream;
+        ByteArrayInputStream bytes;
 
+        if ( in instanceof DroolsObjectInputStream ) {
+            bytes = null;
+            droolsStream = (DroolsObjectInputStream) in;
+        } else {
+            bytes = new ByteArrayInputStream( (byte[]) in.readObject() );
+            droolsStream = new DroolsObjectInputStream( bytes );
+        }
+        try {
             this.rules = (Map<String, BaseNode[]>) droolsStream.readObject();
             this.queries = (Map<String, BaseNode[]>) droolsStream.readObject();
             this.namedWindows = (Map<String, WindowNode>) droolsStream.readObject();
             this.idGenerator = (IdGenerator) droolsStream.readObject();
         } finally {
-            if ( !isDrools ) {
-                if (droolsStream != null) {
-                    droolsStream.close();
-                }
-                if (bytes != null) {
-                    bytes.close();
-                }
+            if ( bytes != null ) {
+                droolsStream.close();
+                bytes.close();
             }
         }
     }

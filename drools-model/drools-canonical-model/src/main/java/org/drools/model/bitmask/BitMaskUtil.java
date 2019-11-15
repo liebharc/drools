@@ -21,16 +21,47 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
 import org.drools.model.BitMask;
+import org.drools.model.DomainClassMetadata;
 
 public class BitMaskUtil {
     public static final int TRAITABLE_BIT = 0;
     public static final int CUSTOM_BITS_OFFSET = 1;
     public static final String TRAITSET_FIELD_NAME = "__$$dynamic_traits_map$$";
+
+    private static final Map<Class<?>, List<String>> accessiblePropertiesCache = new HashMap<>();
+
+    public static BitMask calculatePatternMask(DomainClassMetadata metadata, boolean isPositive, String... listenedProperties) {
+        if (listenedProperties == null) {
+            return EmptyBitMask.get();
+        }
+
+        BitMask mask = getEmptyPropertyReactiveMask( metadata.getPropertiesSize() );
+        for (String propertyName : listenedProperties) {
+            if (propertyName.equals(isPositive ? "*" : "!*")) {
+                return AllSetBitMask.get();
+            }
+            if (propertyName.startsWith("!") ^ !isPositive) {
+                continue;
+            }
+            if (propertyName.equals( TRAITSET_FIELD_NAME )) {
+                mask = mask.set( TRAITABLE_BIT );
+                continue;
+            }
+            if (!isPositive) {
+                propertyName = propertyName.substring(1);
+            }
+
+            mask = setPropertyOnMask(mask, metadata.getPropertyIndex( propertyName ));
+        }
+        return mask;
+    }
 
     public static BitMask calculatePatternMask( Class<?> clazz, Collection<String> listenedProperties ) {
         List<String> accessibleProperties = getAccessibleProperties( clazz );
@@ -67,8 +98,16 @@ public class BitMaskUtil {
         return mask.set(index + CUSTOM_BITS_OFFSET);
     }
 
-    private static List<String> getAccessibleProperties( Class<?> clazz ) {
-        Set<PropertyInClass> props = new TreeSet<PropertyInClass>();
+    public static boolean isAccessibleProperties( Class<?> clazz, String prop ) {
+        return getAccessibleProperties( clazz ).contains( prop );
+    }
+
+    public static List<String> getAccessibleProperties( Class<?> clazz ) {
+        return accessiblePropertiesCache.computeIfAbsent( clazz, BitMaskUtil::findAccessibleProperties );
+    }
+
+    private static List<String> findAccessibleProperties( Class<?> clazz ) {
+        Set<PropertyInClass> props = new TreeSet<>();
         for (Method m : clazz.getMethods()) {
             if (m.getParameterTypes().length == 0) {
                 String propName = getter2property(m.getName());
@@ -79,12 +118,12 @@ public class BitMaskUtil {
         }
 
         for (Field f : clazz.getFields()) {
-            if ( !Modifier.isFinal( f.getModifiers() ) && !Modifier.isStatic( f.getModifiers() ) ) {
+            if ( Modifier.isPublic( f.getModifiers() ) && !Modifier.isStatic( f.getModifiers() ) ) {
                 props.add( new PropertyInClass( f.getName(), f.getDeclaringClass() ) );
             }
         }
 
-        List<String> accessibleProperties = new ArrayList<String>();
+        List<String> accessibleProperties = new ArrayList<>();
         for ( PropertyInClass setter : props ) {
             accessibleProperties.add(setter.setter);
         }
@@ -131,5 +170,9 @@ public class BitMaskUtil {
         public int hashCode() {
             return 29 * clazz.hashCode() + 31 * setter.hashCode();
         }
+    }
+
+    private BitMaskUtil() {
+        // It is not allowed to create instances of util classes.
     }
 }

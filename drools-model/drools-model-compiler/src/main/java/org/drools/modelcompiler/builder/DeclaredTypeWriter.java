@@ -17,28 +17,26 @@
 
 package org.drools.modelcompiler.builder;
 
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 
 public class DeclaredTypeWriter {
 
-    protected final ClassOrInterfaceDeclaration generatedPojo;
+    protected final TypeDeclaration generatedPojo;
     protected final PackageModel pkgModel;
     private final String name;
 
-    public DeclaredTypeWriter(ClassOrInterfaceDeclaration generatedPojo, PackageModel pkgModel) {
+    public DeclaredTypeWriter(TypeDeclaration generatedPojo, PackageModel pkgModel) {
         this.generatedPojo = generatedPojo;
         this.name = generatedPojo.getNameAsString();
         this.pkgModel = pkgModel;
     }
 
     public String getSource() {
-        String source = JavaParserCompiler.toPojoSource(
+        return JavaParserCompiler.toPojoSource(
                 pkgModel.getName(),
                 pkgModel.getImports(),
                 pkgModel.getStaticImports(),
                 generatedPojo);
-        pkgModel.logRule(source);
-        return source;
     }
 
     public String getName() {

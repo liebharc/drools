@@ -17,13 +17,13 @@
 package org.drools.scenariosimulation.backend.util;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.assertj.core.api.Assertions;
 import org.drools.scenariosimulation.backend.model.Dispute;
 import org.drools.scenariosimulation.backend.model.NotEmptyConstructor;
 import org.drools.scenariosimulation.backend.model.Person;
@@ -32,6 +32,7 @@ import org.drools.scenariosimulation.backend.runner.RuleScenarioRunnerHelperTest
 import org.drools.scenariosimulation.backend.runner.ScenarioException;
 import org.junit.Test;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.drools.scenariosimulation.backend.util.ScenarioBeanUtil.convertValue;
 import static org.drools.scenariosimulation.backend.util.ScenarioBeanUtil.getField;
 import static org.drools.scenariosimulation.backend.util.ScenarioBeanUtil.loadClass;
@@ -91,6 +92,14 @@ public class ScenarioBeanUtilTest {
         ScenarioBeanUtil.fillBean(null, paramsToSet, classLoader);
     }
 
+    @Test(expected = ScenarioException.class)
+    public void fillBeanFailWrongTypeTest() {
+        Map<List<String>, Object> paramsToSet = new HashMap<>();
+        paramsToSet.put(Arrays.asList("description"), new ArrayList<>());
+
+        ScenarioBeanUtil.fillBean(Dispute.class.getCanonicalName(), paramsToSet, classLoader);
+    }
+
     @Test
     public void navigateToObjectTest() {
         Dispute dispute = new Dispute();
@@ -113,7 +122,7 @@ public class ScenarioBeanUtilTest {
         List<String> pathToProperty = Arrays.asList("fakeField");
 
         String message = "Impossible to find field with name 'fakeField' in class " + Dispute.class.getCanonicalName();
-        Assertions.assertThatThrownBy(() -> ScenarioBeanUtil.navigateToObject(dispute, pathToProperty, true))
+        assertThatThrownBy(() -> ScenarioBeanUtil.navigateToObject(dispute, pathToProperty, true))
                 .isInstanceOf(ScenarioException.class)
                 .hasMessage(message);
     }
@@ -124,7 +133,7 @@ public class ScenarioBeanUtilTest {
         List<String> pathToProperty = Arrays.asList("creator", "firstName");
 
         String message = "Impossible to reach field firstName because a step is not instantiated";
-        Assertions.assertThatThrownBy(() -> ScenarioBeanUtil.navigateToObject(dispute, pathToProperty, false))
+        assertThatThrownBy(() -> ScenarioBeanUtil.navigateToObject(dispute, pathToProperty, false))
                 .isInstanceOf(ScenarioException.class)
                 .hasMessage(message);
     }
@@ -138,16 +147,28 @@ public class ScenarioBeanUtilTest {
         assertEquals(1, convertValue(Integer.class.getCanonicalName(), "1", classLoader));
         assertEquals(1L, convertValue(long.class.getCanonicalName(), "1", classLoader));
         assertEquals(1L, convertValue(Long.class.getCanonicalName(), "1", classLoader));
-        assertEquals(1.0D, convertValue(double.class.getCanonicalName(), "1.0", classLoader));
-        assertEquals(1.0D, convertValue(Double.class.getCanonicalName(), "1.0", classLoader));
-        assertEquals(1.0F, convertValue(float.class.getCanonicalName(), "1.0", classLoader));
-        assertEquals(1.0F, convertValue(Float.class.getCanonicalName(), "1.0", classLoader));
+        assertEquals(1.0d, convertValue(double.class.getCanonicalName(), "1", classLoader));
+        assertEquals(1.0d, convertValue(Double.class.getCanonicalName(), "1", classLoader));
+        assertEquals(1.0f, convertValue(float.class.getCanonicalName(), "1", classLoader));
+        assertEquals(1.0f, convertValue(Float.class.getCanonicalName(), "1", classLoader));
+        assertEquals(1.0d, convertValue(double.class.getCanonicalName(), "1.0", classLoader));
+        assertEquals(1.0d, convertValue(Double.class.getCanonicalName(), "1.0", classLoader));
+        assertEquals(1.0f, convertValue(float.class.getCanonicalName(), "1.0", classLoader));
+        assertEquals(1.0f, convertValue(Float.class.getCanonicalName(), "1.0", classLoader));
+        assertEquals(1.0d, convertValue(double.class.getCanonicalName(), "1.0d", classLoader));
+        assertEquals(1.0d, convertValue(Double.class.getCanonicalName(), "1.0d", classLoader));
+        assertEquals(1.0f, convertValue(float.class.getCanonicalName(), "1.0f", classLoader));
+        assertEquals(1.0f, convertValue(Float.class.getCanonicalName(), "1.0f", classLoader));
+        assertEquals(1.0d, convertValue(double.class.getCanonicalName(), "1.0D", classLoader));
+        assertEquals(1.0d, convertValue(Double.class.getCanonicalName(), "1.0D", classLoader));
+        assertEquals(1.0f, convertValue(float.class.getCanonicalName(), "1.0F", classLoader));
+        assertEquals(1.0f, convertValue(Float.class.getCanonicalName(), "1.0F", classLoader));
         assertEquals('a', convertValue(char.class.getCanonicalName(), "a", classLoader));
         assertEquals('a', convertValue(Character.class.getCanonicalName(), "a", classLoader));
         assertEquals((short) 1, convertValue(short.class.getCanonicalName(), "1", classLoader));
         assertEquals((short) 1, convertValue(Short.class.getCanonicalName(), "1", classLoader));
-        assertEquals("0".getBytes()[0], convertValue(byte.class.getCanonicalName(), "0", classLoader));
-        assertEquals("0".getBytes()[0], convertValue(Byte.class.getCanonicalName(), "0", classLoader));
+        assertEquals("0".getBytes()[0], convertValue(byte.class.getCanonicalName(), Byte.toString("0".getBytes()[0]), classLoader));
+        assertEquals("0".getBytes()[0], convertValue(Byte.class.getCanonicalName(), Byte.toString("0".getBytes()[0]), classLoader));
         assertEquals(LocalDate.of(2018, 5, 20), convertValue(LocalDate.class.getCanonicalName(), "2018-05-20", classLoader));
         assertNull(convertValue(Float.class.getCanonicalName(), null, classLoader));
     }
@@ -156,10 +177,11 @@ public class ScenarioBeanUtilTest {
     public void revertValueTest() {
         assertEquals("Test", revertValue("Test"));
         assertEquals("false", revertValue(false));
+        assertEquals("true", revertValue(Boolean.TRUE));
         assertEquals("1", revertValue(1));
-        assertEquals("1L", revertValue(1L));
-        assertEquals("1.0D", revertValue(1.0D));
-        assertEquals("1.0F", revertValue(1.0F));
+        assertEquals("1", revertValue(1L));
+        assertEquals("1.0d", revertValue(1.0d));
+        assertEquals("1.0f", revertValue(1.0f));
         assertEquals("a", revertValue('a'));
         assertEquals("1", revertValue((short) 1));
         assertEquals(String.valueOf("0".getBytes()[0]), revertValue("0".getBytes()[0]));
@@ -167,24 +189,110 @@ public class ScenarioBeanUtilTest {
         assertEquals("2018-10-20", revertValue(LocalDate.of(2018, 10, 20)));
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
+    public void convertAndRevertValue() {
+        assertEquals("Test", revertValue(convertValue(String.class.getCanonicalName(), "Test", classLoader)));
+        assertEquals("false", revertValue(convertValue(boolean.class.getCanonicalName(), "false", classLoader)));
+        assertEquals("true", revertValue(convertValue(Boolean.class.getCanonicalName(), "true", classLoader)));
+        assertEquals("1", revertValue(convertValue(int.class.getCanonicalName(), "1", classLoader)));
+        assertEquals("1", revertValue(convertValue(Integer.class.getCanonicalName(), "1", classLoader)));
+        assertEquals("1", revertValue(convertValue(long.class.getCanonicalName(), "1", classLoader)));
+        assertEquals("1", revertValue(convertValue(Long.class.getCanonicalName(), "1", classLoader)));
+        assertEquals("1.0d", revertValue(convertValue(double.class.getCanonicalName(), "1", classLoader)));
+        assertEquals("1.0d", revertValue(convertValue(Double.class.getCanonicalName(), "1", classLoader)));
+        assertEquals("1.0f", revertValue(convertValue(float.class.getCanonicalName(), "1", classLoader)));
+        assertEquals("1.0f", revertValue(convertValue(Float.class.getCanonicalName(), "1", classLoader)));
+        assertEquals("1.0d", revertValue(convertValue(double.class.getCanonicalName(), "1.0", classLoader)));
+        assertEquals("1.0d", revertValue(convertValue(Double.class.getCanonicalName(), "1.0", classLoader)));
+        assertEquals("1.0f", revertValue(convertValue(float.class.getCanonicalName(), "1.0", classLoader)));
+        assertEquals("1.0f", revertValue(convertValue(Float.class.getCanonicalName(), "1.0", classLoader)));
+        assertEquals("1.0d", revertValue(convertValue(double.class.getCanonicalName(), "1.0d", classLoader)));
+        assertEquals("1.0d", revertValue(convertValue(Double.class.getCanonicalName(), "1.0d", classLoader)));
+        assertEquals("1.0f", revertValue(convertValue(float.class.getCanonicalName(), "1.0f", classLoader)));
+        assertEquals("1.0f", revertValue(convertValue(Float.class.getCanonicalName(), "1.0f", classLoader)));
+        assertEquals("1.0d", revertValue(convertValue(double.class.getCanonicalName(), "1.0D", classLoader)));
+        assertEquals("1.0d", revertValue(convertValue(Double.class.getCanonicalName(), "1.0D", classLoader)));
+        assertEquals("1.0f", revertValue(convertValue(float.class.getCanonicalName(), "1.0F", classLoader)));
+        assertEquals("1.0f", revertValue(convertValue(Float.class.getCanonicalName(), "1.0F", classLoader)));
+        assertEquals("a", revertValue(convertValue(char.class.getCanonicalName(), "a", classLoader)));
+        assertEquals("a", revertValue(convertValue(Character.class.getCanonicalName(), "a", classLoader)));
+        assertEquals("1", revertValue(convertValue(short.class.getCanonicalName(), "1", classLoader)));
+        assertEquals("1", revertValue(convertValue(Short.class.getCanonicalName(), "1", classLoader)));
+        assertEquals(Byte.toString("0".getBytes()[0]), revertValue(convertValue(byte.class.getCanonicalName(), Byte.toString("0".getBytes()[0]), classLoader)));
+        assertEquals(Byte.toString("0".getBytes()[0]), revertValue(convertValue(Byte.class.getCanonicalName(), Byte.toString("0".getBytes()[0]), classLoader)));
+        assertEquals("2018-05-20", revertValue(convertValue(LocalDate.class.getCanonicalName(), "2018-05-20", classLoader)));
+        assertEquals("null", revertValue(convertValue(Float.class.getCanonicalName(), null, classLoader)));
+    }
+
+    @Test
+    public void revertAndConvertValueTest() {
+        assertEquals("Test", convertValue(String.class.getCanonicalName(), revertValue("Test"), classLoader));
+        assertEquals(false, convertValue(boolean.class.getCanonicalName(), revertValue(false), classLoader));
+        assertEquals(Boolean.TRUE, convertValue(Boolean.class.getCanonicalName(), revertValue(Boolean.TRUE), classLoader));
+        assertEquals(1, convertValue(int.class.getCanonicalName(), revertValue(1), classLoader));
+        assertEquals(1, convertValue(Integer.class.getCanonicalName(), revertValue(1), classLoader));
+        assertEquals(1L, convertValue(long.class.getCanonicalName(), revertValue(1L), classLoader));
+        assertEquals(1L, convertValue(Long.class.getCanonicalName(), revertValue(1L), classLoader));
+        assertEquals(1d, convertValue(double.class.getCanonicalName(), revertValue(1), classLoader));
+        assertEquals(1d, convertValue(Double.class.getCanonicalName(), revertValue(1), classLoader));
+        assertEquals(1f, convertValue(float.class.getCanonicalName(), revertValue(1), classLoader));
+        assertEquals(1f, convertValue(Float.class.getCanonicalName(), revertValue(1), classLoader));
+        assertEquals(1d, convertValue(double.class.getCanonicalName(), revertValue(1.0), classLoader));
+        assertEquals(1d, convertValue(Double.class.getCanonicalName(), revertValue(1.0), classLoader));
+        assertEquals(1f, convertValue(float.class.getCanonicalName(), revertValue(1.0), classLoader));
+        assertEquals(1f, convertValue(Float.class.getCanonicalName(), revertValue(1.0), classLoader));
+        assertEquals(1d, convertValue(double.class.getCanonicalName(), revertValue(1.0d), classLoader));
+        assertEquals(1d, convertValue(Double.class.getCanonicalName(), revertValue(1.0d), classLoader));
+        assertEquals(1f, convertValue(float.class.getCanonicalName(), revertValue(1.0f), classLoader));
+        assertEquals(1f, convertValue(Float.class.getCanonicalName(), revertValue(1.0f), classLoader));
+        assertEquals(1d, convertValue(double.class.getCanonicalName(), revertValue(1.0D), classLoader));
+        assertEquals(1d, convertValue(Double.class.getCanonicalName(), revertValue(1.0D), classLoader));
+        assertEquals(1f, convertValue(float.class.getCanonicalName(), revertValue(1.0F), classLoader));
+        assertEquals(1f, convertValue(Float.class.getCanonicalName(), revertValue(1.0F), classLoader));
+        assertEquals('a', convertValue(char.class.getCanonicalName(), revertValue('a'), classLoader));
+        assertEquals('a', convertValue(Character.class.getCanonicalName(), revertValue('a'), classLoader));
+        assertEquals((short) 1, convertValue(short.class.getCanonicalName(), revertValue((short) 1), classLoader));
+        assertEquals((short) 1, convertValue(Short.class.getCanonicalName(), revertValue((short) 1), classLoader));
+        assertEquals("0".getBytes()[0], convertValue(byte.class.getCanonicalName(), revertValue("0".getBytes()[0]), classLoader));
+        assertEquals("0".getBytes()[0], convertValue(Byte.class.getCanonicalName(), revertValue("0".getBytes()[0]), classLoader));
+        assertEquals(LocalDate.of(2018, 10, 20), convertValue(LocalDate.class.getCanonicalName(), revertValue(LocalDate.of(2018, 10, 20)), classLoader));
+        assertNull(convertValue(String.class.getCanonicalName(), revertValue(null), classLoader));
+    }
+
+    @Test
     public void convertValueFailLoadClassTest() {
-        convertValue("my.NotExistingClass", "Test", classLoader);
+        assertThatThrownBy(() -> convertValue("my.NotExistingClass", "Test", classLoader))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("Impossible to load ");
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void convertValueFailUnsupportedTest() {
-        convertValue(RuleScenarioRunnerHelperTest.class.getCanonicalName(), "Test", classLoader);
+        assertThatThrownBy(() -> convertValue(RuleScenarioRunnerHelperTest.class.getCanonicalName(), "Test", classLoader))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageEndingWith(" is not supported");
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void convertValueFailPrimitiveNullTest() {
-        convertValue("int", null, classLoader);
+        assertThatThrownBy(() -> convertValue("int", null, classLoader))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(" is not a String or an instance of");
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void convertValueFailNotStringOrTypeTest() {
-        convertValue(RuleScenarioRunnerHelperTest.class.getCanonicalName(), 1, classLoader);
+        assertThatThrownBy(() -> convertValue(RuleScenarioRunnerHelperTest.class.getCanonicalName(), 1, classLoader))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("Object 1 is not a String or an instance of");
+    }
+
+    @Test
+    public void convertValueFailParsing() {
+        String integerCanonicalName = Integer.class.getCanonicalName();
+        assertThatThrownBy(() -> convertValue(integerCanonicalName, "wrongValue", classLoader))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("Impossible to parse 'wrongValue' as " + integerCanonicalName);
     }
 
     @Test
@@ -192,11 +300,11 @@ public class ScenarioBeanUtilTest {
         assertEquals(String.class, loadClass(String.class.getCanonicalName(), classLoader));
         assertEquals(int.class, loadClass(int.class.getCanonicalName(), classLoader));
 
-        Assertions.assertThatThrownBy(() -> loadClass(null, classLoader))
+        assertThatThrownBy(() -> loadClass(null, classLoader))
                 .isInstanceOf(ScenarioException.class)
                 .hasMessage("Impossible to load class null");
 
-        Assertions.assertThatThrownBy(() -> loadClass("NotExistingClass", classLoader))
+        assertThatThrownBy(() -> loadClass("NotExistingClass", classLoader))
                 .isInstanceOf(ScenarioException.class)
                 .hasMessage("Impossible to load class NotExistingClass");
     }
@@ -206,7 +314,7 @@ public class ScenarioBeanUtilTest {
         assertNotNull(getField(Person.class, "firstName"));
         assertNotNull(getField(SubPerson.class, "firstName"));
         assertNotNull(getField(SubPerson.class, "additionalField"));
-        Assertions.assertThatThrownBy(() -> getField(Person.class, "notExistingField"))
+        assertThatThrownBy(() -> getField(Person.class, "notExistingField"))
                 .isInstanceOf(ScenarioException.class)
                 .hasMessageStartingWith("Impossible to find field with name ");
     }
